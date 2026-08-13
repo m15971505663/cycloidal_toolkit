@@ -1,0 +1,10 @@
+{
+  "name": "cycloidal-cycloid",
+  "version": "0.1.0",
+  "private": true,
+  "description": "小红书小工具 · 摆线针轮减速器原理演示（2D 线稿动画）",
+  "scripts": {
+    "build": "node tools/build.js",
+    "pack": "node tools/pack.js"
+  }
+}

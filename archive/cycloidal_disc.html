@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>摆线轮齿廓生成器</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:#1a1a1a; color:#ddd; font-family:-apple-system,"Microsoft YaHei",sans-serif; display:flex; height:100vh; }
+  #stage { flex:1; position:relative; background:#222; }
+  canvas { display:block; }
+  #panel { width:310px; background:#252525; padding:14px; overflow-y:auto; border-left:1px solid #444; }
+  h2 { font-size:14px; color:#fff; margin-bottom:4px; }
+  h3 { font-size:12px; color:#9cf; margin:12px 0 5px; border-bottom:1px solid #333; padding-bottom:2px; }
+  .hint { font-size:11.5px; color:#999; line-height:1.65; margin:4px 0; }
+  .row { margin:7px 0; font-size:11.5px; }
+  .row label { display:flex; justify-content:space-between; color:#bbb; margin-bottom:3px; }
+  .row .val { color:#fd6; font-family:monospace; }
+  input[type=range]{ width:100%; }
+  .check { display:flex; align-items:center; margin:4px 0; font-size:11.5px; cursor:pointer; color:#ccc; }
+  .check input { margin-right:7px; }
+  .sw { display:inline-block; width:11px; height:11px; border-radius:2px; margin-right:6px; vertical-align:middle; }
+  .btns button { background:#36a; color:#fff; border:none; padding:6px 10px; border-radius:3px; cursor:pointer; font-size:11.5px; margin-right:5px; margin-top:4px; }
+  .btns button:hover { background:#48c; }
+  .btns button.on { background:#5a5; }
+  code { background:#333; padding:1px 4px; border-radius:3px; color:#9cf; font-size:11px; }
+  #readout { font-size:11.5px; line-height:1.8; color:#bbb; }
+  #readout b { color:#fd6; font-family:monospace; }
+  #status { position:absolute; top:8px; left:8px; background:rgba(0,0,0,.7); padding:6px 10px; border-radius:4px; font-size:11.5px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="cv" width="640" height="640"></canvas>
+  <div id="status">摆线轮齿廓生成器</div>
+</div>
+<div id="panel">
+  <h2>摆线轮齿廓生成器</h2>
+  <div class="hint">把这个页面想成 Fusion 里那片摆线轮的「2D 透视图」——同样的数学，只是摊平在屏幕上，能拖参数实时看齿怎么变。</div>
+
+  <h3>构件（同一参数族，sign 翻转）</h3>
+  <div class="btns">
+    <button id="mode_inner" class="on">内摆线轮（盘·在里面）</button>
+    <button id="mode_outer">外摆线圈（环·在外面）</button>
+  </div>
+  <div class="hint">数学移植自 Onshape <code>drawCycloid</code>的 sign：<b>内</b>＝n−1 瓣的盘，针齿在外啮合；<b>外</b>＝n+1 瓣的环，针齿在内啮合。一个开关内外通吃。</div>
+
+  <h3>设计参数（决定齿形）</h3>
+  <div class="row"><label>针齿数 z<sub>p</sub> <span class="val" id="zp_v">11</span></label>
+    <input type="range" id="zp" min="7" max="20" step="1" value="11"></div>
+  <div class="row"><label>偏心距 e (mm) <span class="val" id="e_v">2.6</span></label>
+    <input type="range" id="e" min="1" max="4.5" step="0.1" value="2.6"></div>
+  <div class="row"><label>针齿半径 r<sub>p</sub> (mm) <span class="val" id="rp_v">4.2</span></label>
+    <input type="range" id="rp" min="2" max="6" step="0.1" value="4.2"></div>
+  <div class="row"><label>齿侧间隙 Δr<sub>p</sub> (mm) <span class="val" id="drp_v">0.6</span></label>
+    <input type="range" id="drp" min="0" max="1.5" step="0.05" value="0.6"></div>
+  <div class="hint">针齿中心圆半径 R<sub>p</sub> = 38mm（固定，整机尺寸）。<code>e</code>越小齿越接近圆形（短幅越短）。</div>
+
+  <h3>显示层（对照生成步骤）</h3>
+  <label class="check"><input type="checkbox" id="L_pin" checked><span class="sw" style="background:#c8c8d0"></span>针齿（圆柱，啮合对象）</label>
+  <label class="check"><input type="checkbox" id="L_house"><span class="sw" style="background:#70747f"></span>针齿壳（圆形外壳，可选）</label>
+  <label class="check"><input type="checkbox" id="L_troch" checked><span class="sw" style="background:#7ce07c"></span>① 针心轨迹 / 摆线</label>
+  <label class="check"><input type="checkbox" id="L_tooth" checked><span class="sw" style="background:#ff8c2c"></span>③ 真实齿廓（等距内缩）</label>
+  <label class="check"><input type="checkbox" id="L_holes" checked><span class="sw" style="background:#666"></span>中心孔 + W 销孔</label>
+  <label class="check"><input type="checkbox" id="L_fill" checked><span class="sw" style="background:rgba(255,140,44,.5)"></span>填充盘片实体</label>
+
+  <h3>视图 / 运转</h3>
+  <div class="btns">
+    <button id="gen">▶ 动画生成</button>
+    <button id="mesh" class="on">居中查看</button>
+    <button id="run">▶ 运转</button>
+  </div>
+  <div class="row"><label>运转速度 <span class="val" id="spd_v">1.0</span></label>
+    <input type="range" id="spd" min="0" max="3" step="0.05" value="1"></div>
+  <div class="hint" style="margin-top:5px"><b>运转</b>：针齿固定不动，摆线件偏心<b>公转</b>＋被针齿逼着反向<b>自转</b>（= 减速）。内盘自转 −φ/(zp−1) 反向；外环自转 +φ/(zp+1) 同向。点「居中查看」切静态。</div>
+
+  <h3>生成结果</h3>
+  <div id="readout"></div>
+
+  <h3>这页对应的 Fusion 步骤</h3>
+  <div class="hint">
+    ① 绿线 = <code>x=Rp·cos t − e·cos(zp·t)</code> 采点<br>
+    ② 每点求外法向（代码里 dx,dy→nx,ny）<br>
+    ③ 橙线 = ① 沿外法向内缩 <code>(rp+drp)</code> = 真齿廓<br>
+    ④ 橙线即 Fusion 那条闭合样条<br>
+    ⑤ 拉伸 14mm = 盘片实体
+  </div>
+</div>
+
+<script>
+"use strict";
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+
+const FIXED = { Rp: 38, eccR: 11, centerGap: 1.8, pinN: 8, pinR: 20, pinSize: 2.5 };
+
+const ids = ['zp','e','rp','drp'];
+const els = {};
+ids.forEach(id => { els[id] = document.getElementById(id); els[id+'_v'] = document.getElementById(id+'_v'); });
+const L = { pin:document.getElementById('L_pin'), house:document.getElementById('L_house'), troch:document.getElementById('L_troch'),
+            tooth:document.getElementById('L_tooth'), holes:document.getElementById('L_holes'), fill:document.getElementById('L_fill') };
+const readout = document.getElementById('readout');
+const genBtn = document.getElementById('gen'), meshBtn = document.getElementById('mesh'), runBtn = document.getElementById('run');
+const spdEl = document.getElementById('spd'), spdV = document.getElementById('spd_v');
+const modeInnerBtn = document.getElementById('mode_inner'), modeOuterBtn = document.getElementById('mode_outer');
+
+let scale = 6;
+let genProgress = 1.0;   // 1.0 = 全画完；<1 = 动画中只画前 progress 比例
+let genPlaying = false;
+let meshOffset = true;    // 默认偏心啮合位（真实运转位），盘偏 e：一侧齿贴针齿、一侧脱开
+let mode = 'inner';       // 'inner' = 内摆线轮(盘, sign=+1) | 'outer' = 外摆线圈(环, sign=-1)
+let animating = false;    // 运转动画
+let animPhi = 0;          // 输入角（弧度）
+let animSpeed = 1.0;
+let curPose = { Cx:0, Cy:0, th:0 };   // 摆线件当前位姿（公转中心 + 自转角），draw 里每帧更新
+
+function params() {
+  return { zp:+els.zp.value, e:+els.e.value, rp:+els.rp.value, drp:+els.drp.value,
+           Rp:FIXED.Rp, eccR:FIXED.eccR, centerGap:FIXED.centerGap,
+           pinN:FIXED.pinN, pinR:FIXED.pinR, pinSize:FIXED.pinSize };
+}
+
+// 计算齿廓点 —— 移植自 Onshape drawCycloid（sign 翻转 = 内盘/外环）
+// inner(hypocycloid, sign=+1): xa=R cos t − e cos nt, n−1 瓣（= 我们的盘）
+// outer(epicycloid,  sign=-1): xa=R cos t + e cos nt, n+1 瓣（= 外面的环）
+function compute(p) {
+  const N = p.zp * 64;
+  const sign = (mode === 'outer') ? -1 : 1;
+  const R = p.Rp, n = p.zp, e = p.e;
+  const troch = [], tooth = [];
+  let rmax = -1e9, rmin = 1e9;
+  for (let k = 0; k < N; k++) {
+    const t = k/N * 2*Math.PI;
+    const ct = Math.cos(t), st = Math.sin(t);
+    const cnt = Math.cos(n*t), snt = Math.sin(n*t);
+    const xa = R*ct - sign*e*cnt;
+    const ya = R*st - e*snt;
+    const dxa = -R*st + sign*n*e*snt;
+    const dya = R*ct - n*e*cnt;
+    const denom = Math.sqrt(dxa*dxa + dya*dya) || 1;
+    const off = (p.rp + p.drp) / denom;
+    troch.push([xa, ya]);
+    const xT = xa + sign*off*(-dya);
+    const yT = ya + sign*off*dxa;
+    tooth.push([xT, yT]);
+    const r = Math.hypot(xT, yT);
+    if (r>rmax) rmax=r; if (r<rmin) rmin=r;
+  }
+  return { troch, tooth, rmax, rmin, N, sign };
+}
+
+// 摆线件当前位姿：公转中心 (Cx,Cy) + 自转角 th
+// 运转时按减速器运动学：内盘 C=(e cosφ,e sinφ), th=−φ/(zp−1)；外环 C=(−e cosφ,−e sinφ), th=+φ/(zp+1)
+// 静态时：meshOffset 决定是否偏到啮合位（内盘 +e，外环 −e）
+function memberPose() {
+  const p = p_cur;
+  if (animating) {
+    if (mode === 'outer') return { Cx:-p.e*Math.cos(animPhi), Cy:-p.e*Math.sin(animPhi), th: animPhi/(p.zp+1) };
+    return { Cx:p.e*Math.cos(animPhi), Cy:p.e*Math.sin(animPhi), th: -animPhi/(p.zp-1) };
+  }
+  if (!meshOffset) return { Cx:0, Cy:0, th:0 };
+  if (mode === 'outer') return { Cx:-p.e, Cy:0, th:0 };
+  return { Cx:p.e, Cy:0, th:0 };
+}
+
+function world(x, y) {
+  const c = Math.cos(curPose.th), s = Math.sin(curPose.th);
+  const rx = x*c - y*s + curPose.Cx;
+  const ry = x*s + y*c + curPose.Cy;
+  return [W/2 + rx*scale, H/2 - ry*scale];
+}
+let p_cur;   // 当前参数缓存（world / memberPose 用）
+
+function drawPath(pts, close) {
+  ctx.beginPath();
+  pts.forEach((pt,i) => { const [wx,wy] = world(pt[0],pt[1]); i?ctx.lineTo(wx,wy):ctx.moveTo(wx,wy); });
+  if (close) ctx.closePath();
+}
+
+function draw() {
+  const p = params(); p_cur = p;
+  curPose = memberPose();
+  const data = compute(p);
+  // 自适应缩放（外环模式轮廓更大）
+  const fitR = (mode === 'outer') ? data.rmax + 9 : (p.Rp + p.rp + 9);
+  scale = (Math.min(W,H)/2 - 28) / fitR;
+
+  ctx.clearRect(0,0,W,H);
+  const nDraw = Math.max(2, Math.floor(data.N * genProgress));
+
+  // 针齿壳（圆形外壳，固定；仅内盘模式有意义）
+  if (L.house.checked && mode === 'inner') {
+    const Rin = p.Rp + p.rp + 0.5, Rout = p.Rp + p.rp + 6;
+    const cx = W/2, cy = H/2;
+    ctx.fillStyle = 'rgba(112,116,127,0.4)';
+    ctx.beginPath(); ctx.arc(cx,cy,Rout*scale,0,2*Math.PI); ctx.fill();
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(cx,cy,Rin*scale,0,2*Math.PI); ctx.fill();
+    ctx.strokeStyle = '#9aa0ab'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx,cy,Rout*scale,0,2*Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,cy,Rin*scale,0,2*Math.PI); ctx.stroke();
+  }
+
+  const partial = data.troch.slice(0, nDraw);
+
+  // 填充盘片 + 齿廓
+  if (L.tooth.checked || L.fill.checked) {
+    const tpartial = data.tooth.slice(0, nDraw);
+    if (L.fill.checked && genProgress >= 1.0) {
+      if (mode === 'outer') {
+        // 外环：填外圆 → 挖掉齿廓内部 = 环身（无中心孔/W孔）
+        const Rout = data.rmax + 4;
+        const [cx,cy] = world(0,0);
+        ctx.fillStyle = 'rgba(91,180,255,0.35)';
+        ctx.beginPath(); ctx.arc(cx,cy,Rout*scale,0,2*Math.PI); ctx.fill();
+        ctx.fillStyle = '#222';
+        drawPath(data.tooth, true); ctx.fill();
+      } else {
+        // 内盘：填齿廓 → 挖中心孔 + W销孔
+        ctx.fillStyle = 'rgba(255,140,44,0.42)';
+        drawPath(data.tooth, true); ctx.fill();
+        if (L.holes.checked) {
+          ctx.fillStyle = '#222';
+          const [cx,cy] = world(0,0);
+          ctx.beginPath(); ctx.arc(cx,cy,(p.eccR+p.centerGap)*scale,0,2*Math.PI); ctx.fill();
+          const holeR = p.pinSize + p.e;
+          for (let i=0;i<p.pinN;i++){
+            const a=i/p.pinN*2*Math.PI;
+            const [hx,hy]=world(p.pinR*Math.cos(a),p.pinR*Math.sin(a));
+            ctx.beginPath(); ctx.arc(hx,hy,holeR*scale,0,2*Math.PI); ctx.fill();
+          }
+        }
+      }
+    }
+    if (L.tooth.checked) {
+      ctx.strokeStyle = (mode === 'outer') ? '#5fb4ff' : '#ff8c2c'; ctx.lineWidth = 2.5;
+      drawPath(tpartial, genProgress>=1.0); ctx.stroke();
+    }
+    // 外环：补一圈外墙壁轮廓
+    if (mode === 'outer' && genProgress >= 1.0) {
+      const Rout = data.rmax + 4;
+      const [cx,cy] = world(0,0);
+      ctx.strokeStyle = '#5fb4ff'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(cx,cy,Rout*scale,0,2*Math.PI); ctx.stroke();
+    }
+  }
+
+  // 针齿放最后画，压在环填充之上（外环模式填充会挖空内部，否则针齿被盖住）
+  if (L.pin.checked) {
+    for (let i = 0; i < p.zp; i++) {
+      const a = i/p.zp * 2*Math.PI;
+      const wx = W/2 + p.Rp*Math.cos(a)*scale, wy = H/2 - p.Rp*Math.sin(a)*scale;
+      ctx.fillStyle = '#3a3a40'; ctx.strokeStyle = '#c8c8d0'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(wx,wy, p.rp*scale, 0, 2*Math.PI); ctx.fill(); ctx.stroke();
+    }
+  }
+
+  // 针心轨迹（外摆线）
+  if (L.troch.checked) {
+    ctx.strokeStyle = '#7ce07c'; ctx.lineWidth = 1.3; ctx.setLineDash([5,4]);
+    drawPath(partial, genProgress>=1.0); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // 孔轮廓（仅内盘模式；填充模式下已被挖空，这里补轮廓线）
+  if (mode === 'inner' && L.holes.checked && !(L.fill.checked && genProgress>=1.0)) {
+    ctx.strokeStyle = '#888'; ctx.lineWidth = 1;
+    const [cx,cy]=world(0,0);
+    ctx.beginPath(); ctx.arc(cx,cy,(p.eccR+p.centerGap)*scale,0,2*Math.PI); ctx.stroke();
+    const holeR = p.pinSize + p.e;
+    for (let i=0;i<p.pinN;i++){
+      const a=i/p.pinN*2*Math.PI;
+      const [hx,hy]=world(p.pinR*Math.cos(a),p.pinR*Math.sin(a));
+      ctx.beginPath(); ctx.arc(hx,hy,holeR*scale,0,2*Math.PI); ctx.stroke();
+    }
+  }
+
+  // 动画中的追踪点
+  if (genPlaying && nDraw > 0) {
+    const tp = data.troch[nDraw-1], trp = data.troch[nDraw-1];
+    const [wx,wy] = world(trp[0],trp[1]);
+    ctx.fillStyle='#7ce07c'; ctx.beginPath(); ctx.arc(wx,wy,4,0,2*Math.PI); ctx.fill();
+    const [wx2,wy2] = world(tp[0],tp[1]);
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.setLineDash([2,3]);
+    ctx.beginPath(); ctx.moveTo(wx,wy); ctx.lineTo(wx2,wy2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#ff8c2c'; ctx.beginPath(); ctx.arc(wx2,wy2,4,0,2*Math.PI); ctx.fill();
+  }
+
+  // 读数
+  const zc = (mode === 'outer') ? (p.zp + 1) : (p.zp - 1);
+  const k1 = p.e*p.zp/p.Rp;
+  readout.innerHTML =
+    (mode === 'outer'
+      ? '外环瓣数 = z<sub>p</sub>+1 = <b>'+zc+'</b>（针齿在内啮合）<br>'
+      : '摆线轮齿数 z<sub>c</sub> = z<sub>p</sub>−1 = <b>'+zc+'</b><br>')+
+    '减速比 = <b>1 : '+zc+'</b><br>'+
+    '齿顶圆半径 ≈ <b>'+data.rmax.toFixed(2)+' mm</b><br>'+
+    '齿根圆半径 ≈ <b>'+data.rmin.toFixed(2)+' mm</b><br>'+
+    '短幅系数 K<sub>1</sub> = e·z<sub>p</sub>/R<sub>p</sub> = <b>'+k1.toFixed(3)+'</b>'+
+    (k1<1?' (短幅 ✓)':' ⚠ 非短幅');
+}
+
+// 动画生成
+let genRAF = null;
+function playGen() {
+  genPlaying = true; genProgress = 0; genBtn.textContent = '⏸ 暂停'; genBtn.classList.add('on');
+  const t0 = performance.now();
+  const DUR = 4000;
+  function step(now) {
+    if (!genPlaying) return;
+    genProgress = Math.min(1.0, (now - t0)/DUR);
+    draw();
+    if (genProgress >= 1.0) { genPlaying = false; genBtn.textContent='▶ 动画生成'; genBtn.classList.remove('on'); draw(); return; }
+    genRAF = requestAnimationFrame(step);
+  }
+  genRAF = requestAnimationFrame(step);
+}
+genBtn.onclick = () => {
+  if (genPlaying) { genPlaying = false; genBtn.textContent='▶ 动画生成'; genBtn.classList.remove('on'); if(genRAF)cancelAnimationFrame(genRAF); return; }
+  playGen();
+};
+meshBtn.onclick = function() { meshOffset = !meshOffset; this.classList.toggle('on', meshOffset); this.textContent = meshOffset ? '居中查看' : '偏心啮合位'; draw(); };
+function setMode(m) {
+  mode = m;
+  modeInnerBtn.classList.toggle('on', m === 'inner');
+  modeOuterBtn.classList.toggle('on', m === 'outer');
+  genProgress = 1.0; genPlaying = false; genBtn.classList.remove('on'); genBtn.textContent='▶ 动画生成';
+  draw();
+}
+modeInnerBtn.onclick = () => setMode('inner');
+modeOuterBtn.onclick = () => setMode('outer');
+
+// 静态循环（非动画时也持续刷新以应对 mesh 切换 / 运转）
+function loop(){
+  if (animating) animPhi += 0.016 * animSpeed;
+  if(!genPlaying) draw();
+  requestAnimationFrame(loop);
+}
+
+runBtn.onclick = function() {
+  animating = !animating;
+  this.classList.toggle('on', animating);
+  this.textContent = animating ? '⏸ 运转' : '▶ 运转';
+  if (animating) { genProgress = 1.0; genPlaying = false; genBtn.classList.remove('on'); genBtn.textContent='▶ 动画生成'; }
+  else { animPhi = 0; }   // 停下回到 φ=0 啮合位
+};
+spdEl.addEventListener('input', () => { animSpeed = +spdEl.value; spdV.textContent = animSpeed.toFixed(2); });
+
+ids.forEach(id => {
+  els[id].addEventListener('input', () => {
+    els[id+'_v'].textContent = els[id].value;
+    genProgress = 1.0; genPlaying = false; genBtn.classList.remove('on'); genBtn.textContent='▶ 动画生成';
+  });
+});
+['L_pin','L_troch','L_tooth','L_holes','L_fill'].forEach(id => document.getElementById(id).addEventListener('change', () => {}));
+
+draw();
+loop();
+</script>
+</body>
+</html>

@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>摆线减速器 · 分步设计器</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:#eef1f5; color:#1f2937; font-family:-apple-system,"Microsoft YaHei",sans-serif; display:flex; height:100vh; }
+  #stage { flex:1; position:relative; background:#ffffff; overflow:hidden; }
+  canvas { display:block; width:100%; height:100%; }
+  #status { position:absolute; top:8px; left:8px; background:rgba(255,255,255,.92); color:#374151; padding:6px 10px; border-radius:5px; font-size:11.5px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  #panel { width:348px; background:#ffffff; padding:16px; overflow-y:auto; border-left:1px solid #e5e7eb; box-shadow:-1px 0 0 rgba(0,0,0,.03); }
+  h2 { font-size:15px; color:#111827; margin-bottom:6px; }
+  .hint { font-size:11.5px; color:#6b7280; line-height:1.65; margin:4px 0 10px; }
+  .prog { display:flex; gap:6px; align-items:center; margin:6px 0 12px; }
+  .dot { width:24px; height:24px; border-radius:50%; background:#f3f4f6; color:#9ca3af; font-size:11px; display:flex; align-items:center; justify-content:center; border:1.5px solid #e5e7eb; font-weight:bold; }
+  .dot.done { background:#16a34a; color:#fff; border-color:#16a34a; }
+  .dot.active { background:#2563eb; color:#fff; border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.18); }
+  .bar { flex:1; height:2px; background:#e5e7eb; }
+  .stage { border:1.5px solid #e5e7eb; border-radius:8px; margin:8px 0; padding:11px 12px; background:#ffffff; transition:.15s; }
+  .stage.active { border-color:#2563eb; background:#f5f9ff; box-shadow:0 1px 6px rgba(37,99,235,.12); }
+  .stage.done { opacity:1; border-color:#d1d5db; }
+  .stage.locked { opacity:.45; background:#fafafa; }
+  .stage-head { font-size:13px; color:#1d4ed8; font-weight:bold; margin-bottom:7px; cursor:pointer; user-select:none; }
+  .stage.locked .stage-head { cursor:not-allowed; color:#9ca3af; }
+  .stage.active .stage-head { color:#1e40af; }
+  .row { margin:7px 0; font-size:12px; }
+  .row label { display:flex; justify-content:space-between; color:#374151; margin-bottom:4px; }
+  .row .val { color:#c2410c; font-family:monospace; font-weight:bold; }
+  input[type=range]{ width:100%; accent-color:#2563eb; }
+  .deriv { font-size:12px; color:#374151; line-height:1.75; }
+  .deriv b { color:#c2410c; font-family:monospace; }
+  .ok { color:#16a34a; font-weight:bold; } .warn { color:#dc2626; font-weight:bold; }
+  code { background:#f3f4f6; padding:1px 5px; border-radius:3px; color:#1d4ed8; font-size:11px; }
+  .btns { display:flex; gap:6px; margin:7px 0; flex-wrap:wrap; }
+  .btns button { flex:1; background:#2563eb; color:#fff; border:none; padding:7px 8px; border-radius:5px; cursor:pointer; font-size:12px; }
+  .btns button:hover { background:#1d4ed8; }
+  .btns button.on { background:#16a34a; }
+  .btns button.on:hover { background:#15803d; }
+  #mode_inner { background:#16a34a; }                          /* 内摆 = 绿 */
+  #mode_outer { background:#2563eb; }                          /* 外摆 = 蓝 */
+  #mode_inner:hover { background:#15803d; }
+  #mode_outer:hover { background:#1d4ed8; }
+  #mode_inner:not(.on), #mode_outer:not(.on) { opacity:.4; }   /* 未选中暗淡，选中高亮 */
+  #next { width:100%; background:#16a34a; color:#fff; border:none; padding:10px; border-radius:6px; cursor:pointer; font-size:13px; margin-top:8px; font-weight:bold; }
+  #next:hover { background:#15803d; }
+  #next:disabled { background:#e5e7eb; color:#9ca3af; cursor:default; }
+  #readout { font-size:12px; line-height:1.9; color:#374151; margin-top:8px; padding:9px 10px; background:#f9fafb; border-radius:6px; border:1px solid #f3f4f6; }
+  #readout b { color:#c2410c; font-family:monospace; }
+  hr { border:none; border-top:1px solid #e5e7eb; margin:6px 0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="cv" width="640" height="640"></canvas>
+  <div id="status">分步设计器 · 从需求出发</div>
+</div>
+<div id="panel">
+  <h2>摆线减速器 · 分步设计器</h2>
+  <div class="hint">从需求出发，①→⑤ 是设计顺序导览。<b>全部开放</b>，启动即按默认参数显示完整设计；拖任意滑块即时重算。</div>
+  <div class="row" style="margin:2px 0 8px"><label>视图缩放 <span class="val" id="zm_v">1.00</span>×</label>
+    <input type="range" id="zm" min="0.3" max="4" step="0.05" value="1"></div>
+
+  <div class="stage done" id="stg1">
+    <div class="stage-head" onclick="jumpStage(1)">① 减速比（功能需求）</div>
+    <div class="row"><label>减速比 1 : <span class="val" id="i_v">10</span></label>
+      <input type="range" id="i_rat" min="5" max="40" step="1" value="10"></div>
+    <div class="deriv">摆线齿数 z<sub>c</sub> = <b id="zc_v">10</b>　针齿数 z<sub>p</sub> = z<sub>c</sub>+1 = <b id="zp_v">11</b><br><span style="color:#9ca3af">齿数差 1 = 减速来源。先定齿数。</span></div>
+  </div>
+
+  <div class="stage locked" id="stg2">
+    <div class="stage-head" onclick="jumpStage(2)">② 针齿直径（你手上的针/销尺寸）</div>
+    <div class="row"><label>针齿直径 d<sub>p</sub> (mm) <span class="val" id="dp_v">3.0</span></label>
+      <input type="range" id="dp" min="2" max="16" step="0.1" value="3"></div>
+    <div class="deriv">针齿半径 r<sub>p</sub> = d<sub>p</sub>/2 = <b id="rp_v">1.50</b> mm<br><span style="color:#9ca3af">直接选你要用的针/销规格——开源 3D 打印常用 Φ2/Φ3 标准销，便宜好买。</span></div>
+  </div>
+
+  <div class="stage locked" id="stg3">
+    <div class="stage-head" onclick="jumpStage(3)">③ 尺寸 Rp（针齿中心圆半径）</div>
+    <div class="row"><label>R<sub>p</sub> (mm) <span class="val" id="Rp_v">38</span></label>
+      <input type="range" id="Rp" min="10" max="80" step="1" value="38"></div>
+    <div class="deriv">针径系数 K₂ = R<sub>p</sub>·sin(π/z<sub>p</sub>)/r<sub>p</sub> = <b id="k2_v">—</b>　<span id="k2badge"></span><br>整机外径 ≈ <b id="odia_v">96</b> mm　接触应力极限扭矩 ≈ <b id="tq_v">—</b> N·m<br><span style="color:#9ca3af">R<sub>p</sub> 定总尺寸；K₂>1 必须（针齿不重叠）。</span></div>
+  </div>
+
+  <div class="stage locked" id="stg4">
+    <div class="stage-head" onclick="jumpStage(4)">④ 短幅 K₁（定曲线类型）</div>
+    <div class="row"><label>短幅系数 K₁ <span class="val" id="K1_v">0.75</span></label>
+      <input type="range" id="K1" min="0" max="0.95" step="0.01" value="0.75"></div>
+    <div class="deriv">偏心距 e = K₁·R<sub>p</sub>/z<sub>p</sub> = <b id="e_v">2.59</b> mm　<span id="k1badge"></span><br>滚圆半径 b = R<sub>p</sub>/z<sub>p</sub> = <b id="b_v">3.45</b> mm<span style="color:#9ca3af">　← 由 R<sub>p</sub>(③) 和 z<sub>p</sub>(①) 决定，与针齿半径 r<sub>p</sub>(②) 无关；r<sub>p</sub> 只决定啮合线的偏移量</span><br><span style="color:#9ca3af">K₁=0 → e=0，摆线退化成圆（无齿，纯参考）；K₁<1 必须（短幅），否则齿根尖角断裂。实际产品取 0.5~0.9。</span></div>
+    <div class="btns">
+      <button id="genbtn">▶ 生成内圈摆线</button>
+      <button id="genbtn2">▶ 生成外圈摆线</button>
+    </div>
+  </div>
+
+  <div class="stage locked" id="stg5">
+    <div class="stage-head" onclick="jumpStage(5)">⑤ 成果（侧隙 + 内/外 + 运转）</div>
+    <div class="row"><label>齿侧间隙 Δr<sub>p</sub> (mm) <span class="val" id="drp_v">0.20</span></label>
+      <input type="range" id="drp" min="0" max="1.5" step="0.05" value="0.2"></div>
+    <div class="hint" style="margin:2px 0 6px;color:#9ca3af">调 Δr<sub>p</sub> 会自动切到啮合预览（拟合后），看齿与针齿的实际间隙。</div>
+    <div class="btns">
+      <button id="show_inner" class="on">● 内摆线轮</button>
+      <button id="show_outer" class="on">● 外摆线圈</button>
+    </div>
+    <div class="hint" style="margin:2px 0 4px;color:#9ca3af">默认两条都显示，各自独立。点按钮 = 关掉/打开对应线轮。</div>
+    <div class="btns">
+      <button id="btn_design" class="on">📐 摆线预览</button>
+      <button id="btn_motion">⚙ 啮合预览</button>
+    </div>
+    <div class="hint" style="margin:2px 0 4px;color:#9ca3af" id="mode_hint">摆线预览：线轮居中展示齿形，方便调参数看形状。</div>
+    <div class="row" id="run_row" style="display:none"><label>运转速度 <span class="val" id="spd_v">1.00</span></label>
+      <input type="range" id="spd" min="0" max="12" step="0.1" value="1"></div>
+    <div class="btns" id="run_btn_row" style="display:none">
+      <button id="run">▶ 运转</button>
+    </div>
+    <div id="readout"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const el = id => document.getElementById(id);
+let W = 640, H = 640;   // 由 resizeCanvas 更新（画布铺满视口）
+const FIXED = { eccR:11, centerGap:1.8, pinN:8, pinR:20, pinSize:2.5 };
+
+// ---- 设计状态（全开，无锁定；启动即按默认参数显示完整设计）----
+let reachedStage = 5, focusStage = 5;
+let showInner = true, showOuter = true;   // 两个线轮默认都显示，各自独立
+// 系统状态：'design' = 摆线预览（居中看齿形）| 'motion' = 啮合预览（啮合 + 可运转）
+let sysMode = 'design';
+let meshT = 0;            // 偏心插值 0=居中(设计) →1=满啮合(运动)，动画过渡用
+let animating = false, animPhi = 0, animSpeed = 1;
+let genPlaying = false, genAngle = 0, genSign = 1;   // 生成动画：genSign=+1 内圈 / -1 外圈
+// 输入量
+let i_rat = 10, dp = 3, Rp = 38, K1 = 0.75, drp = 0.2;
+let scale = 6;
+let curPose = { Cx:0, Cy:0, th:0 };
+let baseScale = 5.5;      // 固定 px/mm（随画布大小定，不随参数变）
+let zoom = 1.0;
+
+// ---- 派生参数 ----
+function deriveParams() {
+  const z_c = i_rat, z_p = i_rat + 1;
+  const rp = dp / 2;
+  const e = K1 * Rp / z_p;
+  const K2 = Rp * Math.sin(Math.PI / z_p) / rp;   // 派生校验：针齿不重叠
+  const off = rp + (reachedStage >= 5 ? drp : 0);
+  return { z_c, z_p, e, rp, K2, off, Rp };
+}
+
+// ---- 扭矩估算（针齿↔摆线齿 赫兹线接触应力反推）----
+function estimateTorque(P) {
+  const sigH = 1500, Estar = 1.13e5, Kload = 4;
+  const b = 0.25 * P.Rp;
+  const rho_eq = P.rp;
+  const Fmax = sigH*sigH*Math.PI*b*rho_eq/Estar;
+  const T_H = Fmax * P.z_p * P.Rp / Kload / 1000;  // N·m
+  return { T_H, b };
+}
+
+// ---- 摆线点（Onshape drawCycloid：sign=+1 内摆 / sign=-1 外摆）----
+// trochoid: 纯摆线（针心轨迹），与 r_p/侧隙 无关
+function trochoid(P, sign) {
+  const N = P.z_p * 64;
+  const R = P.Rp, n = P.z_p, e = P.e, pts = [];
+  for (let k = 0; k < N; k++) {
+    const t = k/N * 2*Math.PI;
+    pts.push([ R*Math.cos(t) - sign*e*Math.cos(n*t),
+               R*Math.sin(t) - e*Math.sin(n*t) ]);
+  }
+  return pts;
+}
+// compute: 真齿廓 = 摆线沿法向偏移 off
+function compute(P, sign) {
+  const N = P.z_p * 64;
+  const R = P.Rp, n = P.z_p, e = P.e;
+  const troch = [], tooth = [];
+  let rmax = -1e9, rmin = 1e9;
+  for (let k = 0; k < N; k++) {
+    const t = k/N * 2*Math.PI;
+    const ct = Math.cos(t), st = Math.sin(t);
+    const cnt = Math.cos(n*t), snt = Math.sin(n*t);
+    const xa = R*ct - sign*e*cnt;
+    const ya = R*st - e*snt;
+    const dxa = -R*st + sign*n*e*snt;
+    const dya = R*ct - n*e*cnt;
+    const denom = Math.sqrt(dxa*dxa + dya*dya) || 1;
+    const o = P.off / denom;
+    troch.push([xa, ya]);
+    const xT = xa + sign*o*(-dya);
+    const yT = ya + sign*o*dxa;
+    tooth.push([xT, yT]);
+    const r = Math.hypot(xT, yT);
+    if (r>rmax) rmax=r; if (r<rmin) rmin=r;
+  }
+  return { troch, tooth, rmax, rmin, N };
+}
+
+// ---- 位姿 ----
+// 运转逻辑：针齿圈固定；摆线轮偏心公转 + 反向自转（自转 = 输出）
+// 齿数不同 → 自转速度不同：
+//   内圈 10 瓣 → 自转 −φ/(zp−1)（减速比 1:10）
+//   外圈 12 瓣 → 自转 +φ/(zp+1)（减速比 1:12）
+function memberPose(P, sign) {
+  const isOuter = (sign < 0);
+  const ex = P.e * meshT;
+  if (ex === 0 && !animating) return { Cx:0, Cy:0, th:0 };
+  const dir = isOuter ? -1 : 1;
+  if (animating) {
+    if (isOuter) return { Cx: dir*ex*Math.cos(animPhi), Cy: dir*ex*Math.sin(animPhi), th: animPhi/(P.z_p+1) };
+    return { Cx: dir*ex*Math.cos(animPhi), Cy: dir*ex*Math.sin(animPhi), th: -animPhi/(P.z_p-1) };
+  }
+  return { Cx: dir*ex, Cy:0, th:0 };
+}
+function world(x, y) {
+  const c = Math.cos(curPose.th), s = Math.sin(curPose.th);
+  const rx = x*c - y*s + curPose.Cx;
+  const ry = x*s + y*c + curPose.Cy;
+  return [W/2 + rx*scale, H/2 - ry*scale];
+}
+function drawPath(pts, close) {
+  ctx.beginPath();
+  pts.forEach((p,i) => { const [wx,wy] = world(p[0],p[1]); i?ctx.lineTo(wx,wy):ctx.moveTo(wx,wy); });
+  if (close) ctx.closePath();
+}
+// 按指定 pose 画线（不依赖全局 curPose；阶段④内/外各用自己的啮合偏移）
+function drawPathAt(pts, close, pose) {
+  const c = Math.cos(pose.th), s = Math.sin(pose.th);
+  ctx.beginPath();
+  pts.forEach((p,i) => {
+    const rx = p[0]*c - p[1]*s + pose.Cx, ry = p[0]*s + p[1]*c + pose.Cy;
+    const wx = W/2 + rx*scale, wy = H/2 - ry*scale;
+    i ? ctx.lineTo(wx,wy) : ctx.moveTo(wx,wy);
+  });
+  if (close) ctx.closePath();
+}
+
+function rgba(hex, a) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return 'rgba('+r+','+g+','+b+','+a.toFixed(3)+')';
+}
+// 画一个线轮：摆线 + 啮合线两组线，浓淡/粗细随模式动画切换（跟随 meshT）
+// 摆线预览聚焦摆线（实线全不透明、粗）；啮合预览聚焦啮合线（实线全不透明、粗）
+// 不聚焦的那条用「不透明度实线」弱化（不用虚线）
+function drawWheel(P, sign, color, show) {
+  if (!show) return;
+  const pose = memberPose(P, sign);
+  const data = compute(P, sign);
+  const c = Math.cos(pose.th), s = Math.sin(pose.th);
+  const t = meshT;                          // 0=设计 1=运动（随模式切换动画渐变）
+  const opT = 1 - 0.75*t, lwT = 1.2 + 1.4*(1-t);   // 摆线：设计聚焦 → 实线全不透明
+  const opM = 0.25 + 0.75*t, lwM = 1.2 + 1.4*t;    // 啮合线：运动聚焦 → 实线全不透明
+  // 摆线（不透明度实线）
+  ctx.strokeStyle = rgba(color, opT); ctx.lineWidth = lwT;
+  drawPathAt(trochoid(P, sign), true, pose); ctx.stroke();
+  // 啮合线（不透明度实线，画在上层）
+  ctx.strokeStyle = rgba(color, opM); ctx.lineWidth = lwM;
+  ctx.beginPath();
+  data.tooth.forEach((p,i) => {
+    const rx = p[0]*c - p[1]*s + pose.Cx, ry = p[0]*s + p[1]*c + pose.Cy;
+    const wx = W/2 + rx*scale, wy = H/2 - ry*scale;
+    i ? ctx.lineTo(wx,wy) : ctx.moveTo(wx,wy);
+  });
+  ctx.closePath(); ctx.stroke();
+}
+
+// ---- 绘制 ----
+function draw() {
+  const P = deriveParams();
+  scale = baseScale * zoom;   // 固定比例，不再随 Rp 自适应
+  ctx.clearRect(0,0,W,H);
+
+  // ---- 摆线生成动画视图（一次性）：滚圆绕基圆滚，追踪点画出内/外圈摆线 ----
+  if (genPlaying) {
+    const b = P.Rp / P.z_p;
+    const fa = genAngle;
+    const s = genSign;                       // +1 内圈(绿) / -1 外圈(蓝)
+    const gColor = (s === 1) ? '#16a34a' : '#2563eb';
+    const Rb = (s === 1) ? P.Rp - b : P.Rp + b;   // 内圈滚基圆外侧 / 外圈滚基圆内侧
+    // 基圆（起点圆，颜色跟轮）
+    ctx.strokeStyle = gColor; ctx.setLineDash([6,4]); ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(W/2, H/2, Rb*scale, 0, 2*Math.PI); ctx.stroke(); ctx.setLineDash([]);
+    // 针齿（淡）
+    for (let i=0;i<P.z_p;i++){ const a=i/P.z_p*2*Math.PI;
+      const wx=W/2+P.Rp*Math.cos(a)*scale, wy=H/2-P.Rp*Math.sin(a)*scale;
+      ctx.fillStyle='rgba(229,231,235,0.75)'; ctx.strokeStyle='rgba(107,114,128,0.75)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(wx,wy,P.rp*scale,0,2*Math.PI); ctx.fill(); ctx.stroke(); }
+    // 滚圆 + 到基圆的接触线
+    const rcx = W/2 + P.Rp*Math.cos(fa)*scale, rcy = H/2 - P.Rp*Math.sin(fa)*scale;
+    ctx.strokeStyle = gColor; ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.arc(rcx, rcy, b*scale, 0, 2*Math.PI); ctx.stroke();
+    ctx.strokeStyle = gColor + '59'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(rcx, rcy); ctx.lineTo(W/2 + Rb*Math.cos(fa)*scale, H/2 - Rb*Math.sin(fa)*scale); ctx.stroke();
+    // 追踪点 + e 线（内圈向里摆、外圈反向摆）
+    const tpx = W/2 + (P.Rp*Math.cos(fa) - s*P.e*Math.cos(P.z_p*fa))*scale;
+    const tpy = H/2 - (P.Rp*Math.sin(fa) - P.e*Math.sin(P.z_p*fa))*scale;
+    ctx.strokeStyle = '#d97706'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(rcx, rcy); ctx.lineTo(tpx, tpy); ctx.stroke();
+    ctx.fillStyle = '#d97706';
+    ctx.beginPath(); ctx.arc(tpx, tpy, 4, 0, 2*Math.PI); ctx.fill();
+    // 已生成的摆线（t: 0→genAngle，按内绿/外蓝加粗生长）
+    const tr = trochoid(P, s);
+    const nDraw = Math.max(2, Math.floor(tr.length * genAngle/(2*Math.PI)));
+    ctx.strokeStyle = gColor; ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    for (let i=0;i<nDraw;i++){ const p=tr[i]; const wx=W/2+p[0]*scale, wy=H/2-p[1]*scale; i?ctx.lineTo(wx,wy):ctx.moveTo(wx,wy); }
+    ctx.stroke();
+    return;
+  }
+
+  // 针齿中心圆（参考）
+  ctx.strokeStyle = '#cbd5e1'; ctx.setLineDash([4,5]); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(W/2, H/2, P.Rp*scale, 0, 2*Math.PI); ctx.stroke(); ctx.setLineDash([]);
+
+  // 针齿（固定不动）
+  for (let i = 0; i < P.z_p; i++) {
+    const a = i/P.z_p * 2*Math.PI;
+    const wx = W/2 + P.Rp*Math.cos(a)*scale, wy = H/2 - P.Rp*Math.sin(a)*scale;
+    ctx.fillStyle = '#e5e7eb'; ctx.strokeStyle = '#6b7280'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(wx,wy, P.rp*scale, 0, 2*Math.PI); ctx.fill(); ctx.stroke();
+  }
+
+  // 两个线轮默认都显示，各自独立（颜色对应按钮）；按 showInner/showOuter 开关
+  drawWheel(P, +1, '#16a34a', showInner);   // 内摆线轮 = 绿
+  drawWheel(P, -1, '#2563eb', showOuter);   // 外摆线圈 = 蓝
+
+  // 内/外圈共用的滚圆构造（都画在真正的 t=0：0° 方向）
+  // 起点同角度、半径差 2e：内圈追踪点在滚圆中心向圆心一侧 (R−e,0)，外圈在背离一侧 (R+e,0)
+  // 基圆不同：内圈滚外侧(外摆, Rp−b)，外圈滚内侧(内摆, Rp+b)
+  {
+    const b = P.Rp / P.z_p;
+    const RbIn = P.Rp - b, RbOut = P.Rp + b;
+    const gIn = '#16a34a', gOut = '#2563eb';
+    // 两条基圆（虚线，颜色对应轮）
+    ctx.setLineDash([6,4]); ctx.lineWidth = 1.4;
+    ctx.strokeStyle = gIn;  ctx.beginPath(); ctx.arc(W/2, H/2, RbIn*scale,  0, 2*Math.PI); ctx.stroke();
+    ctx.strokeStyle = gOut; ctx.beginPath(); ctx.arc(W/2, H/2, RbOut*scale, 0, 2*Math.PI); ctx.stroke();
+    ctx.setLineDash([]);
+    // 共用滚圆（t=0 在 0°，中心 (R,0)，同时贴内基圆内侧/外基圆外侧）
+    const rcx = W/2 + P.Rp*scale, rcy = H/2;
+    ctx.strokeStyle = '#6b7280'; ctx.setLineDash([3,3]); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(rcx, rcy, b*scale, 0, 2*Math.PI); ctx.stroke(); ctx.setLineDash([]);
+    // 内圈追踪点（−e 向圆心，绿）+ 外圈追踪点（+e 背离圆心，蓝）
+    ctx.strokeStyle = gIn; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(rcx, rcy); ctx.lineTo(rcx - P.e*scale, rcy); ctx.stroke();
+    ctx.fillStyle = gIn; ctx.beginPath(); ctx.arc(rcx - P.e*scale, rcy, 4, 0, 2*Math.PI); ctx.fill();
+    ctx.strokeStyle = gOut; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(rcx, rcy); ctx.lineTo(rcx + P.e*scale, rcy); ctx.stroke();
+    ctx.fillStyle = gOut; ctx.beginPath(); ctx.arc(rcx + P.e*scale, rcy, 4, 0, 2*Math.PI); ctx.fill();
+    // 标注（字号/偏移跟随缩放，基准 5.5 px/mm）
+    const u = scale / 5.5;
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = (10.5*u).toFixed(1) + 'px sans-serif';
+    ctx.fillText('内圈基圆(外摆)=' + RbIn.toFixed(1), W/2 + 10*u, H/2 - RbIn*scale - 8*u);
+    ctx.fillText('外圈基圆(内摆)=' + RbOut.toFixed(1), W/2 - RbOut*scale + 8*u, H/2 - RbOut*scale - 8*u);
+    ctx.fillText('起点同在 0°：内(R−e) 外(R+e)，差 2e', W/2 + 10*u, H/2 - 14*u);
+  }
+
+  // 读数
+  {
+    const dataInner = compute(P, +1);
+    const tq = estimateTorque(P);
+    const odia = (P.Rp + P.rp + 6) * 2;
+    el('readout').innerHTML =
+      '减速比 = <b>1 : '+P.z_c+'</b>　(z<sub>c</sub>='+P.z_c+', z<sub>p</sub>='+P.z_p+')<br>'+
+      'd<sub>p</sub>=<b>'+dp.toFixed(1)+'</b> (r<sub>p</sub>='+P.rp.toFixed(2)+')　R<sub>p</sub>=<b>'+P.Rp+'</b>　e=<b>'+P.e.toFixed(2)+'</b>　Δr<sub>p</sub>=<b>'+drp.toFixed(2)+'</b><br>'+
+      'K₁=<b>'+K1.toFixed(2)+'</b> '+(K1<1?'<span class="ok">✓短幅</span>':'<span class="warn">⚠超界</span>')+
+      '　K₂=<b>'+P.K2.toFixed(2)+'</b> '+(P.K2>1?'<span class="ok">✓不叠</span>':'<span class="warn">⚠干涉</span>')+'<br>'+
+      '内摆 齿顶=<b>'+dataInner.rmax.toFixed(1)+'</b>　齿根=<b>'+dataInner.rmin.toFixed(1)+'</b> mm　整机外径 ≈ <b>'+odia.toFixed(0)+'</b> mm'+
+      '<br>内圈基圆(外摆) R<sub>b</sub>=R<sub>p</sub>−b=<b>'+((P.Rp - P.Rp/P.z_p)).toFixed(1)+'</b>　外圈基圆(内摆) R<sub>b</sub>\'=R<sub>p</sub>+b=<b>'+((P.Rp + P.Rp/P.z_p)).toFixed(1)+'</b>　滚圆 b=R<sub>p</sub>/z<sub>p</sub>=<b>'+((P.Rp/P.z_p)).toFixed(2)+'</b>　e=K₁·b=<b>'+P.e.toFixed(2)+'</b>'+
+      '<hr>接触应力极限扭矩 ≈ <b>'+tq.T_H.toFixed(0)+'</b> N·m　（额定持续 ≈ <b>'+(tq.T_H*0.2).toFixed(0)+'</b> N·m，取 20% 寿命系数）<br>'+
+      '<span style="color:#9ca3af">按 b='+tq.b.toFixed(1)+'mm(=0.25R<sub>p</sub>)、[σ<sub>H</sub>]=1500、硬化钢、ρ<sub>eq</sub>≈r<sub>p</sub> 估算。</span>';
+  }
+}
+
+// ---- 显示更新 ----
+function readInputs() {
+  i_rat = +el('i_rat').value; dp = +el('dp').value; Rp = +el('Rp').value;
+  K1 = +el('K1').value; drp = +el('drp').value; animSpeed = +el('spd').value;
+  zoom = +el('zm').value;
+}
+function updateDisplays() {
+  readInputs();
+  const P = deriveParams();
+  el('i_v').textContent = i_rat;
+  el('dp_v').textContent = dp.toFixed(1);
+  el('Rp_v').textContent = Rp;
+  el('K1_v').textContent = K1.toFixed(2);
+  el('drp_v').textContent = drp.toFixed(2);
+  el('spd_v').textContent = animSpeed.toFixed(2);
+  el('zm_v').textContent = zoom.toFixed(2);
+  el('zc_v').textContent = P.z_c;
+  el('zp_v').textContent = P.z_p;
+  el('rp_v').textContent = P.rp.toFixed(2);
+  el('e_v').textContent = P.e.toFixed(2);
+  el('b_v').textContent = (P.Rp / P.z_p).toFixed(2);
+  el('k2_v').textContent = P.K2.toFixed(2);
+  el('odia_v').textContent = ((P.Rp + P.rp + 6) * 2).toFixed(0);
+  el('k1badge').innerHTML = K1<1 ? '<span class="ok">✓ 短幅</span>' : '<span class="warn">⚠ 非短幅</span>';
+  el('k2badge').innerHTML = P.K2>1 ? '<span class="ok">✓ 针不重叠</span>' : '<span class="warn">⚠ 针干涉</span>';
+  const tq = estimateTorque(P);
+  el('tq_v').textContent = tq.T_H.toFixed(0);
+}
+
+// ---- 阶段（导览用，无锁定）----
+function updateStages() {
+  for (let s = 1; s <= 5; s++) {
+    const e = el('stg'+s);
+    e.classList.remove('active','done','locked');
+    e.classList.add('done');   // 全部常态开放
+    e.querySelectorAll('input,button').forEach(b => { b.disabled = false; });
+  }
+}
+function jumpStage(s) { draw(); }   // 点击标题无副作用（保留不报错）
+
+['i_rat','dp','Rp','K1','drp','spd','zm'].forEach(id =>
+  el(id).addEventListener('input', () => { updateDisplays(); draw(); }));
+
+// 侧隙是"装配/贴合"参数：调节时自动切到啮合预览（拟合后），才能看到实际间隙
+el('drp').addEventListener('input', () => {
+  if (sysMode === 'design') switchMode('motion');
+});
+
+el('show_inner').onclick = function() {
+  showInner = !showInner;
+  this.classList.toggle('on', showInner);
+  draw();
+};
+el('show_outer').onclick = function() {
+  showOuter = !showOuter;
+  this.classList.toggle('on', showOuter);
+  draw();
+};
+
+// ====== 系统模式：设计 ↔ 运动 ======
+// design: 线轮居中，方便看齿形调参数
+// motion: 线轮偏心到啮合位，可以开电机运转
+// 切换时 meshT 在 0↔1 之间平滑动画
+let meshAnimating = false;
+function switchMode(target, onDone) {
+  if (sysMode === target && !meshAnimating) { if (onDone) onDone(); return; }
+  // 切到啮合预览前先停转
+  if (target === 'design' && animating) {
+    animating = false; animPhi = 0;
+    el('run').classList.remove('on'); el('run').textContent = '▶ 运转';
+  }
+  sysMode = target;
+  // 更新按钮高亮 + 提示 + 显隐运转控件
+  el('btn_design').classList.toggle('on', target === 'design');
+  el('btn_motion').classList.toggle('on', target === 'motion');
+  el('mode_hint').textContent = (target === 'design')
+    ? '摆线预览：聚焦摆线（实线粗、啮合线淡），线轮居中，方便调参数看曲线。'
+    : '啮合预览：聚焦啮合线（实线粗、摆线淡），线轮偏心啮合，可运转。';
+  el('run_row').style.display = (target === 'motion') ? '' : 'none';
+  el('run_btn_row').style.display = (target === 'motion') ? '' : 'none';
+  // meshT 动画
+  if (meshAnimating) return;
+  meshAnimating = true;
+  const fromT = meshT, toT = (target === 'motion') ? 1 : 0;
+  const startT = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - startT) / 1200);
+    const ease = k < .5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2;
+    meshT = fromT + (toT - fromT) * ease;
+    draw();
+    if (k < 1) requestAnimationFrame(step);
+    else { meshAnimating = false; meshT = toT; draw(); if (onDone) onDone(); }
+  };
+  requestAnimationFrame(step);
+}
+el('btn_design').onclick = () => switchMode('design');
+el('btn_motion').onclick = () => switchMode('motion');
+
+// 摆线生成动画：点击播放一次（滚圆绕基圆滚一圈，追踪点画出摆线）
+function startGen(s, btn) {
+  genSign = s; genAngle = 0; genPlaying = true;
+  btn.textContent = '⏳ 生成中…';
+  draw();
+}
+el('genbtn').onclick  = function() { startGen( 1, this); };   // 内圈（绿）
+el('genbtn2').onclick = function() { startGen(-1, this); };   // 外圈（蓝）
+
+// 运转（只在啮合预览可用）
+el('run').onclick = function() {
+  animating = !animating;
+  this.classList.toggle('on', animating);
+  this.textContent = animating ? '⏸ 运转' : '▶ 运转';
+  if (!animating) animPhi = 0;
+  draw();
+};
+
+// 画布铺满视口；比例基准随画布大小定（固定，不随参数变）
+function resizeCanvas() {
+  const r = el('stage').getBoundingClientRect();
+  W = Math.max(320, Math.floor(r.width));
+  H = Math.max(320, Math.floor(r.height));
+  cv.width = W; cv.height = H;
+  baseScale = (Math.min(W, H)/2 - 30) / 46;   // 默认设计(~46mm 外缘)填满半高
+  draw();
+}
+window.addEventListener('resize', resizeCanvas);
+
+// 鼠标滚轮缩放画布（手动缩放，滚轮向上放大、向下缩小）
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
+  zoom = Math.max(0.3, Math.min(4.0, zoom * factor));
+  el('zm').value = zoom.toFixed(2);
+  el('zm_v').textContent = zoom.toFixed(2);
+  draw();
+}, { passive: false });
+
+function loop() {
+  if (animating) animPhi += 0.016 * animSpeed;
+  if (genPlaying) {
+    genAngle += 0.016 * 2.5;                       // 约 2.6 秒滚一圈
+    if (genAngle >= 2*Math.PI) {                   // 播完一次自动停
+      genAngle = 2*Math.PI; genPlaying = false;
+      el('genbtn').textContent = '▶ 生成内圈摆线';
+      el('genbtn2').textContent = '▶ 生成外圈摆线';
+    }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+updateDisplays();
+updateStages();
+resizeCanvas();
+draw();
+loop();
+</script>
+</body>
+</html>

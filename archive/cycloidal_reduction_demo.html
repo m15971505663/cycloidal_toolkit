@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>摆线针轮减速 · 1:10 演示</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:#eef1f5; color:#1f2937; font-family:-apple-system,"Microsoft YaHei",sans-serif; display:flex; height:100vh; }
+  #stage { flex:1; position:relative; background:#fff; overflow:hidden; }
+  canvas { display:block; width:100%; height:100%; }
+  #panel { width:330px; background:#fff; padding:16px; border-left:1px solid #e5e7eb; overflow-y:auto; }
+  h2 { font-size:15px; color:#111827; margin-bottom:4px; }
+  .hint { font-size:11.5px; color:#6b7280; line-height:1.65; margin:6px 0; }
+  .cnt { background:#f9fafb; border:1px solid #f3f4f6; border-radius:8px; padding:10px 12px; margin:10px 0; }
+  .cnt .row { display:flex; justify-content:space-between; font-size:12.5px; margin:5px 0; }
+  .cnt .row b { color:#c2410c; font-family:monospace; font-size:15px; }
+  .cnt .ratio { text-align:center; font-size:13px; color:#111827; font-weight:bold; padding-top:6px; border-top:1px dashed #e5e7eb; margin-top:6px; }
+  .btns { display:flex; gap:6px; margin:8px 0; flex-wrap:wrap; }
+  .btns button { flex:1; background:#2563eb; color:#fff; border:none; padding:8px; border-radius:5px; cursor:pointer; font-size:12px; min-width:90px; }
+  .btns button:hover { background:#1d4ed8; }
+  .btns button.on { background:#16a34a; }
+  .btns button.green { background:#16a34a; }
+  .btns button.green:hover { background:#15803d; }
+  .row2 { margin:7px 0; font-size:12px; }
+  .row2 label { display:flex; justify-content:space-between; margin-bottom:3px; color:#374151; }
+  .row2 .val { color:#c2410c; font-family:monospace; font-weight:bold; }
+  input[type=range] { width:100%; accent-color:#2563eb; }
+  .legend { font-size:11px; color:#6b7280; line-height:1.8; margin-top:8px; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="cv"></canvas>
+</div>
+<div id="panel">
+  <h2>摆线针轮减速 · 1:10 演示</h2>
+  <div class="hint">内圈摆线轮：10 齿对 11 针。偏心<b>公转</b>是输入（快），被针齿逼出的反向<b>自转</b>是输出（慢）。盯住<b>红色基准线</b>看自转，或用「演示 10 圈」让输入恰好转 10 圈、输出恰好 1 圈。黄点 = <b>W 输出销</b>：孔随盘公转、销只慢转——公转被孔间隙（=e）吸收，自转经孔壁推给输出轴。</div>
+
+  <div class="cnt">
+    <div class="row"><span>输入（偏心公转）</span><b id="in_cnt">0.0 圈</b></div>
+    <div class="row"><span>输出（反向自转）</span><b id="out_cnt">0.00 圈</b></div>
+    <div class="ratio">减速比 1 : 10　（输出 = 输入 ÷ 10，方向相反）</div>
+  </div>
+
+  <div class="btns">
+    <button id="play">▶ 运转</button>
+    <button id="demo" class="green">▶ 演示 10 圈</button>
+    <button id="reset">↺ 重置</button>
+  </div>
+  <div class="row2"><label>速度 <span class="val" id="spd_v">1.00</span></label>
+    <input type="range" id="spd" min="0.2" max="8" step="0.1" value="1"></div>
+
+  <div class="legend">
+    <i style="background:#16a34a"></i>摆线轮（10 齿，绿）<br>
+    <i style="background:#d1d5db"></i>针齿 ×11（固定）<br>
+    <i style="background:#2563eb"></i>偏心套（输入，辐条快转）<br>
+    <i style="background:#dc2626"></i>基准线 = 轮上标记（自转可见）<br>
+    <i style="background:#93c5fd"></i>公转轨迹（半径 e 的小圆）<br>
+    <i style="background:#f3f4f6;border:1px solid #9ca3af"></i>双表盘：输入 ×10（快）｜输出 ×1（慢）<br>
+    <i style="background:#d97706"></i>W 销孔输出：孔（白圈）随盘公转｜销（黄点）只慢转
+  </div>
+  <div class="hint">数一数：公转（输入）转 10 圈时，基准线/表盘正好反向转 1 圈——这就是 1:10。</div>
+</div>
+
+<script>
+"use strict";
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const el = id => document.getElementById(id);
+let W = 800, H = 800;
+
+// 参数（与设计器默认一致：Φ3 销）
+const P = { Rp:38, zp:11, e:2.6, rp:1.5, drp:0.2 };
+const ZC = P.zp - 1;        // 10 齿
+let phi = 0;                // 输入角（弧度）
+let playing = false, speed = 1;
+let demoMode = false;       // 演示 10 圈模式：到 20π 自动停
+let scale = 5.5;
+
+// ---- 齿廓点（Onshape drawCycloid，内圈 sign=+1）----
+function compute(sign) {
+  const N = P.zp * 64, R = P.Rp, n = P.zp, e = P.e;
+  const troch = [], tooth = [];
+  const off = P.rp + P.drp;
+  for (let k = 0; k < N; k++) {
+    const t = k/N * 2*Math.PI;
+    const ct = Math.cos(t), st = Math.sin(t);
+    const cnt = Math.cos(n*t), snt = Math.sin(n*t);
+    const xa = R*ct - sign*e*cnt;
+    const ya = R*st - e*snt;
+    const dxa = -R*st + sign*n*e*snt;
+    const dya = R*ct - n*e*cnt;
+    const denom = Math.sqrt(dxa*dxa + dya*dya) || 1;
+    const o = off / denom;
+    troch.push([xa, ya]);
+    tooth.push([xa + sign*o*(-dya), ya + sign*o*dxa]);
+  }
+  return { troch, tooth };
+}
+const data = compute(1);
+
+// ---- 位姿：公转 + 反向自转 ----
+function pose() {
+  return { Cx: P.e*Math.cos(phi), Cy: P.e*Math.sin(phi), th: -phi/ZC };
+}
+
+function resize() {
+  const r = el('stage').getBoundingClientRect();
+  W = Math.max(320, Math.floor(r.width));
+  H = Math.max(320, Math.floor(r.height));
+  cv.width = W; cv.height = H;
+  scale = (Math.min(W,H)/2 - 40) / (P.Rp + P.rp + 8);
+}
+
+function drawPath(pts, close, pose_) {
+  const c = Math.cos(pose_.th), s = Math.sin(pose_.th);
+  ctx.beginPath();
+  pts.forEach((p,i) => {
+    const rx = p[0]*c - p[1]*s + pose_.Cx, ry = p[0]*s + p[1]*c + pose_.Cy;
+    const wx = W/2 + rx*scale, wy = H/2 - ry*scale;
+    i ? ctx.lineTo(wx,wy) : ctx.moveTo(wx,wy);
+  });
+  if (close) ctx.closePath();
+}
+
+function draw() {
+  ctx.clearRect(0,0,W,H);
+  const p = pose();
+
+  // 公转轨迹（输入，半径 e 小圆，淡蓝）
+  ctx.strokeStyle = '#93c5fd'; ctx.lineWidth = 1.2; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.arc(W/2, H/2, P.e*scale, 0, 2*Math.PI); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 针齿中心圆（参考）
+  ctx.strokeStyle = '#d1d5db'; ctx.setLineDash([4,5]); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(W/2, H/2, P.Rp*scale, 0, 2*Math.PI); ctx.stroke(); ctx.setLineDash([]);
+
+  // 针齿（固定）
+  for (let i = 0; i < P.zp; i++) {
+    const a = i/P.zp * 2*Math.PI;
+    const wx = W/2 + P.Rp*Math.cos(a)*scale, wy = H/2 - P.Rp*Math.sin(a)*scale;
+    ctx.fillStyle = '#e5e7eb'; ctx.strokeStyle = '#6b7280'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(wx,wy, P.rp*scale, 0, 2*Math.PI); ctx.fill(); ctx.stroke();
+  }
+
+  // 摆线（淡虚线，参考）
+  ctx.strokeStyle = 'rgba(22,163,74,0.35)'; ctx.lineWidth = 1.1; ctx.setLineDash([6,4]);
+  drawPath(data.troch, true, p); ctx.stroke(); ctx.setLineDash([]);
+
+  // 摆线轮齿廓（绿实线）
+  ctx.strokeStyle = '#16a34a'; ctx.lineWidth = 2.4;
+  drawPath(data.tooth, true, p); ctx.stroke();
+
+  // 偏心套（真正的输入）：盘中心小圆 + 快转辐条（按 φ 转）
+  const exx = W/2 + p.Cx*scale, exy = H/2 - p.Cy*scale;
+  ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(exx, exy, 7*scale, 0, 2*Math.PI); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(exx, exy);
+  ctx.lineTo(exx + 7*scale*Math.cos(phi), exy - 7*scale*Math.sin(phi)); ctx.stroke();
+  ctx.fillStyle = '#2563eb';
+  ctx.beginPath(); ctx.arc(exx + 7*scale*Math.cos(phi), exy - 7*scale*Math.sin(phi), 3, 0, 2*Math.PI); ctx.fill();
+
+  // 红色基准线（轮上标记，随自转 -φ/10 转动）—— 看减速就看它
+  const mx = p.Cx + (P.Rp - 3)*Math.cos(p.th), my = p.Cy + (P.Rp - 3)*Math.sin(p.th);
+  ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(W/2 + p.Cx*scale, H/2 - p.Cy*scale); ctx.lineTo(W/2 + mx*scale, H/2 - my*scale); ctx.stroke();
+  ctx.fillStyle = '#dc2626';
+  ctx.beginPath(); ctx.arc(W/2 + mx*scale, H/2 - my*scale, 4, 0, 2*Math.PI); ctx.fill();
+
+  // ---- W 机构（销孔式输出）：孔随盘走，销随输出轴只慢转，公转被 e 间隙吸收 ----
+  const NW = 8, RwW = 20, rw = 1.5;   // 8 销、孔心圆 20mm；W 销统一用 Φ3 标准销（与针齿同规格，物料统一）
+  const holeR = rw + P.e;             // 孔半径 = 销半径 + e：销始终在孔内贴 C 侧
+  // 孔（盘上挖的洞，随盘公转 + 自转）
+  ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.strokeStyle = '#374151'; ctx.lineWidth = 1.4;
+  for (let i = 0; i < NW; i++) {
+    const a = i/NW*2*Math.PI + p.th;
+    const hx = p.Cx + RwW*Math.cos(a), hy = p.Cy + RwW*Math.sin(a);
+    ctx.beginPath(); ctx.arc(W/2 + hx*scale, H/2 - hy*scale, holeR*scale, 0, 2*Math.PI);
+    ctx.fill(); ctx.stroke();
+  }
+  // 销（固定输出轴，只随 -φ/10 慢转：公转在孔里"白转"，孔壁只推自转）
+  ctx.fillStyle = '#d97706'; ctx.strokeStyle = '#92400e'; ctx.lineWidth = 1;
+  for (let i = 0; i < NW; i++) {
+    const a = i/NW*2*Math.PI + p.th;
+    const px = RwW*Math.cos(a), py = RwW*Math.sin(a);
+    ctx.beginPath(); ctx.arc(W/2 + px*scale, H/2 - py*scale, rw*scale, 0, 2*Math.PI);
+    ctx.fill(); ctx.stroke();
+  }
+  // 输出轴标记：中心金色轴 + 辐条随输出角慢转
+  ctx.strokeStyle = '#d97706'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(W/2, H/2);
+  ctx.lineTo(W/2 + 9*scale*Math.cos(p.th), H/2 - 9*scale*Math.sin(p.th)); ctx.stroke();
+  ctx.strokeStyle = '#92400e'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(W/2, H/2, 5*scale, 0, 2*Math.PI); ctx.stroke();
+
+  // 输入表盘（右下，按 φ 快转）+ 输出表盘（按 -φ/10 慢转）—— 快慢对照就是减速
+  const dx = W - 80, dy = H - 80, dr = 52, ix = dx - 125, iy = dy;
+  function dial(cx, cy, ang, label) {
+    ctx.strokeStyle = '#9ca3af'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, cy, dr, 0, 2*Math.PI); ctx.stroke();
+    for (let i = 0; i < 12; i++) {
+      const a = i/12*2*Math.PI;
+      ctx.beginPath();
+      ctx.moveTo(cx + (dr-6)*Math.cos(a), cy + (dr-6)*Math.sin(a));
+      ctx.lineTo(cx + dr*Math.cos(a), cy + dr*Math.sin(a));
+      ctx.stroke();
+    }
+    ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + (dr-12)*Math.cos(ang), cy + (dr-12)*Math.sin(ang)); ctx.stroke();
+    ctx.fillStyle = '#374151'; ctx.font = '11px sans-serif';
+    ctx.fillText(label, cx - 14, cy + dr + 14);
+  }
+  dial(ix, iy, phi, '输入 ×10');
+  dial(dx, dy, p.th, '输出 ×1');
+
+  // 计数器
+  const Nin = phi / (2*Math.PI);
+  const Nout = Math.abs(p.th) / (2*Math.PI);   // = Nin / 10
+  el('in_cnt').textContent = Nin.toFixed(1) + ' 圈';
+  el('out_cnt').textContent = Nout.toFixed(2) + ' 圈';
+}
+
+function loop() {
+  if (playing) {
+    phi += 0.016 * speed;
+    if (demoMode && phi >= 2*Math.PI*ZC) {   // 演示 10 圈：输入正好 10 圈自动停
+      phi = 2*Math.PI*ZC;
+      playing = false; demoMode = false;
+      el('play').classList.remove('on'); el('play').textContent = '▶ 运转';
+      el('demo').classList.remove('on'); el('demo').textContent = '▶ 演示 10 圈';
+    }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+el('play').onclick = function() {
+  playing = !playing;
+  this.classList.toggle('on', playing);
+  this.textContent = playing ? '⏸ 运转' : '▶ 运转';
+};
+el('demo').onclick = function() {
+  phi = 0; demoMode = true; playing = true;
+  this.classList.add('on'); this.textContent = '⏳ 演示中…';
+  el('play').classList.add('on'); el('play').textContent = '⏸ 运转';
+};
+el('reset').onclick = () => { phi = 0; playing = false; demoMode = false;
+  el('play').classList.remove('on'); el('play').textContent = '▶ 运转';
+  el('demo').classList.remove('on'); el('demo').textContent = '▶ 演示 10 圈'; };
+el('spd').addEventListener('input', () => { speed = +el('spd').value; el('spd_v').textContent = speed.toFixed(2); });
+window.addEventListener('resize', () => { resize(); draw(); });
+
+resize();
+draw();
+loop();
+</script>
+</body>
+</html>
