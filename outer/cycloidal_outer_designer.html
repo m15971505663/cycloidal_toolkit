@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>外摆线减速器 · 参数化 + 摆线 + 运动</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:#eef1f5; color:#1f2937; font-family:-apple-system,"Microsoft YaHei",sans-serif; display:flex; height:100vh; }
+  #panel { width:330px; padding:14px 16px; background:#fff; border-right:1px solid #e5e7eb; overflow-y:auto; flex-shrink:0; }
+  #stage { flex:1; position:relative; background:#fafafa; }
+  canvas { display:block; width:100%; height:100%; }
+  h2 { font-size:16px; color:#7c3aed; margin-bottom:4px; }
+  .hint { font-size:11px; color:#6b7280; line-height:1.5; margin-bottom:12px; padding:7px 9px; background:#f5f3ff; border:1px solid #ddd6fe; border-radius:6px; }
+  .hint b { color:#6d28d9; }
+  .row { margin:9px 0; }
+  .row label { display:flex; justify-content:space-between; font-size:12px; color:#374151; margin-bottom:3px; }
+  .val { color:#7c3aed; font-weight:600; }
+  input[type=range] { width:100%; accent-color:#7c3aed; }
+  .deriv { font-size:11px; color:#6b7280; background:#f9fafb; border:1px solid #f3f4f6; border-radius:5px; padding:6px 8px; margin:10px 0; line-height:1.6; }
+  .deriv b { color:#1f2937; }
+  .btns { display:flex; gap:8px; margin:12px 0; }
+  button { flex:1; padding:7px 10px; font-size:12px; border:1px solid #c4b5fd; background:#f5f3ff; color:#6d28d9; border-radius:6px; cursor:pointer; font-weight:600; }
+  button:hover { background:#ede9fe; }
+  button.on { background:#7c3aed; color:#fff; border-color:#7c3aed; }
+  #readout { font-size:11px; color:#374151; line-height:1.7; padding:9px 10px; background:#f9fafb; border:1px solid #f3f4f6; border-radius:6px; }
+  #readout b { color:#7c3aed; }
+  #readout hr { border:none; border-top:1px dashed #e5e7eb; margin:6px 0; }
+  .ok { color:#16a34a; } .warn { color:#dc2626; }
+  .genbtn { flex:1; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <h2>外摆线减速器</h2>
+  <div class="hint">
+    <b>外摆 sign=−1 = hypotrochoid</b>（数学内摆线，凸瓣数 zp+1）。与内摆 sign=+1（epitrochoid，凸瓣 zp−1）的差别是
+    <b>x 和 y 的 e 项符号相反</b>（不是两项一起翻——那只是转半齿、形状没变）。<b>运动学为镜像初版</b>，运转观察啮合再修正。
+  </div>
+
+  <div class="row"><label>减速比 1:zc <span class="val" id="i_v">10</span></label>
+    <input id="i_rat" type="range" min="6" max="20" step="1" value="10"></div>
+  <div class="row"><label>针齿直径 dp <span class="val" id="dp_v">3.0</span> mm</label>
+    <input id="dp" type="range" min="1" max="8" step="0.1" value="3"></div>
+  <div class="row"><label>针齿中心圆半径 Rp <span class="val" id="Rp_v">20</span> mm</label>
+    <input id="Rp" type="range" min="10" max="50" step="0.5" value="20"></div>
+  <div class="row"><label>短幅系数 K₁ <span class="val" id="K1_v">0.75</span></label>
+    <input id="K1" type="range" min="0.3" max="1.1" step="0.01" value="0.75"></div>
+  <div class="row"><label>齿侧间隙 drp <span class="val" id="drp_v">0.20</span> mm</label>
+    <input id="drp" type="range" min="0" max="1" step="0.02" value="0.2"></div>
+
+  <div class="deriv">
+    z<sub>p</sub> = zc+1 = <b id="zp_v">11</b>　|　r<sub>p</sub> = dp/2 = <b id="rp_v">1.50</b><br>
+    偏心 e = K₁·Rp/zp = <b id="e_v">1.36</b>　<span id="k1badge"></span><br>
+    滚圆半径 b = Rp/zp = <b id="b_v">1.82</b><br>
+    K₂ = Rp·sin(π/zp)/rp = <b id="k2_v">3.76</b>　<span id="k2badge"></span>
+  </div>
+
+  <div class="row"><label>运转速度 <span class="val" id="spd_v">1.00</span></label>
+    <input id="spd" type="range" min="0" max="3" step="0.05" value="1"></div>
+  <div class="row"><label>视图缩放 <span class="val" id="zm_v">1.00</span></label>
+    <input id="zm" type="range" min="0.3" max="4" step="0.05" value="1"></div>
+  <div class="row"><label>动力输入距 O · din <span class="val" id="din_v">40.0</span> mm</label>
+    <input id="din" type="range" min="20" max="100" step="0.5" value="40"></div>
+  <div class="row"><label>胶囊半径 · capR <span class="val" id="capR_v">28.0</span> mm</label>
+    <input id="capR" type="range" min="15" max="60" step="0.5" value="28"></div>
+
+  <div class="btns">
+    <button id="genbtn" class="genbtn">▶ 摆线生成动画</button>
+  </div>
+  <div class="btns">
+    <button id="meshbtn">啮合</button>
+    <button id="run">▶ 运转</button>
+    <button id="reset">重置</button>
+  </div>
+  <div class="btns">
+    <button id="stackbtn">三片叠加</button>
+  </div>
+
+  <div id="readout"></div>
+</div>
+<div id="stage"><canvas id="cv"></canvas></div>
+
+<script>
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const el = id => document.getElementById(id);
+let W = 640, H = 640;
+
+// ===== 外摆核心开关 =====
+const SIGN = -1;     // 外摆 sign=−1（内摆 sign=+1）；trochoid x 的 e 项 + 等距偏移方向都乘它（照 Onshape drawCycloid）
+
+const DEFAULTS = { i_rat:10, dp:3, Rp:20, K1:0.75, drp:0.2, spd:1.0, zoom:1.0, din:40, capR:28 };
+
+let i_rat=DEFAULTS.i_rat, dp=DEFAULTS.dp, Rp=DEFAULTS.Rp, K1=DEFAULTS.K1, drp=DEFAULTS.drp;
+let animSpeed=DEFAULTS.spd, zoom=DEFAULTS.zoom, din=DEFAULTS.din, capR=DEFAULTS.capR;
+let animating=false, animPhi=0;
+let genPlaying=false, genAngle=0;
+let meshed=true, meshT=1, meshAnimating=false;    // 默认啮合：meshT=1（摆线轮偏心 e 卡针齿）
+let stack=false;                                  // 三片叠加（120° 相位差，动平衡）
+let scale=6;
+
+// ---- 派生参数（与内摆一致）----
+function deriveParams() {
+  const z_c = i_rat, z_p = i_rat + 1;
+  const rp = dp / 2;
+  const e = K1 * Rp / z_p;
+  const K2 = Rp * Math.sin(Math.PI / z_p) / rp;
+  const off = rp + drp;
+  return { z_c, z_p, e, rp, K2, off, Rp };
+}
+
+// ---- 摆线点（sign 参数化：e 项乘 SIGN）----
+function trochoid(P) {
+  const N=P.z_p*64, R=P.Rp, n=P.z_p, e=P.e, s=SIGN, pts=[];
+  for (let k=0;k<N;k++){ const t=k/N*2*Math.PI;
+    pts.push([ R*Math.cos(t) - s*e*Math.cos(n*t), R*Math.sin(t) - e*Math.sin(n*t) ]);
+  }
+  return pts;
+}
+// ---- 齿廓 = trochoid 等距曲线（法向偏移 off；切向导数同步带 SIGN）----
+function compute(P) {
+  const N=P.z_p*64, R=P.Rp, n=P.z_p, e=P.e, s=SIGN;
+  const troch=[], tooth=[]; let rmax=-1e9, rmin=1e9;
+  for (let k=0;k<N;k++){ const t=k/N*2*Math.PI;
+    const ct=Math.cos(t), st=Math.sin(t), cnt=Math.cos(n*t), snt=Math.sin(n*t);
+    const xa = R*ct - s*e*cnt, ya = R*st - e*snt;               // trochoid：x 的 e 项乘 SIGN，y 恒定（SIGN=−1 → hypotrochoid）
+    const dxa = -R*st + s*n*e*snt, dya = R*ct - n*e*cnt;         // 切向（y 导数 e 项不乘 SIGN）
+    const denom = Math.sqrt(dxa*dxa + dya*dya) || 1;
+    const o = SIGN * P.off / denom;   // 等距偏移方向跟 SIGN（照 Onshape）：外摆 sign=−1 → 外胀，齿廓包裹所有针齿
+    troch.push([xa, ya]);
+    const xT = xa + o*(-dya), yT = ya + o*dxa;                   // 法向（切向左转90°）偏移
+    tooth.push([xT, yT]);
+    const r = Math.hypot(xT, yT);
+    if (r>rmax) rmax=r; if (r<rmin) rmin=r;
+  }
+  return { troch, tooth, rmax, rmin, N };
+}
+
+// ---- 位姿：外摆盘圆周平动（th=0），中心角=输入 φ + phase（三片 phase=0/120°/240° 偏心相位差）----
+function memberPose(P, phase) {
+  phase = phase || 0;
+  if (animating) {
+    const ang = animPhi + phase;
+    return { Cx: SIGN*P.e*Math.cos(ang), Cy: SIGN*P.e*Math.sin(ang), th: 0 };
+  }
+  return { Cx: SIGN*P.e*meshT*Math.cos(phase), Cy: SIGN*P.e*meshT*Math.sin(phase), th: 0 };
+}
+function drawPathAt(pts, close, pose) {
+  const c=Math.cos(pose.th), s=Math.sin(pose.th);
+  ctx.beginPath();
+  pts.forEach((p,i)=>{
+    const rx=p[0]*c - p[1]*s + pose.Cx, ry=p[0]*s + p[1]*c + pose.Cy;
+    const wx=W/2 + rx*scale, wy=H/2 - ry*scale;
+    i ? ctx.lineTo(wx,wy) : ctx.moveTo(wx,wy);
+  });
+  if (close) ctx.closePath();
+}
+function rgba(hex, a) {
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  return 'rgba('+r+','+g+','+b+','+a.toFixed(3)+')';
+}
+
+// ---- 绘制 ----
+function draw() {
+  const P = deriveParams();
+  const data = compute(P);
+  // 自适应缩放：容纳胶囊 + din
+  scale = (Math.min(W,H)/2 - 32) / Math.max(capR + 4, din + capR + 4) * zoom;
+  ctx.clearRect(0,0,W,H);
+
+  // 摆线生成动画（一次性，展示 trochoid 怎么画出来）
+  if (genPlaying) {
+    drawPins(P);
+    const tr = trochoid(P);
+    const nDraw = Math.max(2, Math.floor(tr.length * genAngle/(2*Math.PI)));
+    // 滚圆构造（t=genAngle 处）
+    const b = P.Rp/P.z_p;
+    const t = genAngle;
+    const rcx = W/2 + (P.Rp*Math.cos(t) - SIGN*0*Math.cos(t))*scale; // 滚圆心 ≈ 导圆上（简化：直接画追踪点）
+    const tpx = W/2 + (P.Rp*Math.cos(t) - SIGN*P.e*Math.cos(P.z_p*t))*scale;
+    const tpy = H/2 - (P.Rp*Math.sin(t) - SIGN*P.e*Math.sin(P.z_p*t))*scale;
+    ctx.strokeStyle = rgba('#7c3aed',0.9); ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    for (let i=0;i<nDraw;i++){ const p=tr[i]; const wx=W/2+p[0]*scale, wy=H/2-p[1]*scale; i?ctx.lineTo(wx,wy):ctx.moveTo(wx,wy); }
+    ctx.stroke();
+    ctx.fillStyle = '#d97706'; ctx.beginPath(); ctx.arc(tpx,tpy,4,0,2*Math.PI); ctx.fill();
+    updateReadout();
+    return;
+  }
+
+  // 针齿中心圆（参考虚线）
+  ctx.strokeStyle='#cbd5e1'; ctx.setLineDash([4,5]); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(W/2,H/2,P.Rp*scale,0,2*Math.PI); ctx.stroke(); ctx.setLineDash([]);
+
+  drawPins(P);
+
+  // 三片（120° 偏心相位）or 单片：每片 = 完整刚体（胶囊+摆线轮+偏心圆）
+  if (stack) {
+    drawDisc(P, data, 0, '#7c3aed', '#a78bfa', 0.6);
+    drawDisc(P, data, 2*Math.PI/3, '#2563eb', '#93c5fd', 0.6);
+    drawDisc(P, data, 4*Math.PI/3, '#059669', '#6ee7b7', 0.6);
+  } else {
+    drawDisc(P, data, 0, '#7c3aed', '#a78bfa', 1);
+  }
+
+  // 共用：壳心 O + 输入轴心 din（固定）+ din→片1偏心套中心 偏心方向线
+  if (animating || meshT > 0.01) {
+    const pose0 = memberPose(P, 0);
+    const fx = W/2, fy = H/2 + din*scale;
+    const b0x = W/2 + pose0.Cx*scale, b0y = H/2 + din*scale - pose0.Cy*scale;
+    ctx.fillStyle='#9ca3af'; ctx.beginPath(); ctx.arc(W/2,H/2,2.5,0,2*Math.PI); ctx.fill();
+    ctx.fillStyle='#5b21b6'; ctx.beginPath(); ctx.arc(fx,fy,Math.max(2.5,0.12*P.Rp*scale),0,2*Math.PI); ctx.fill();
+    ctx.strokeStyle='#a78bfa'; ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(b0x,b0y); ctx.stroke();
+    ctx.fillStyle='#6d28d9'; ctx.font='10px sans-serif';
+    ctx.fillText(stack ? '三片叠加（120°相位，各自完整刚体）' : '面板（胶囊+摆线轮+偏心套 一体）', fx + capR*scale + 6, fy - 6);
+  }
+
+  updateReadout();
+}
+
+function drawPins(P) {
+  const pinAng = animating ? -animPhi/P.z_p : 0;   // 针齿=输出，转 -φ/zp，减速比 1:zp（输入一圈拨一格）
+  for (let i=0;i<P.z_p;i++){
+    const a=i/P.z_p*2*Math.PI + pinAng;
+    const wx=W/2 + P.Rp*Math.cos(a)*scale, wy=H/2 - P.Rp*Math.sin(a)*scale;
+    ctx.fillStyle='#e5e7eb'; ctx.strokeStyle='#6b7280'; ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.arc(wx,wy, Math.max(1.5,P.rp*scale), 0, 2*Math.PI); ctx.fill(); ctx.stroke();
+  }
+}
+
+// 一片完整刚体：胶囊+摆线轮+偏心圆（偏心相位 phase，齿廓错位 rot=phase/(zp+1)，色 col/trochCol，alpha）
+function drawDisc(P, data, phase, col, trochCol, alpha) {
+  alpha = alpha==null ? 1 : alpha;
+  const pose = memberPose(P, phase);
+  const pc=Math.cos(pose.th), ps=Math.sin(pose.th);
+  const rot = phase / (P.z_p + 1);   // 齿廓错位 = 偏心相位/凸瓣数(zp+1)，类比内摆双片齿错半齿距，保证三片都啮合
+  const cr=Math.cos(rot), sr=Math.sin(rot);
+  const r = capR*scale, eccR = 0.3*P.Rp;
+  const ax = W/2 + pose.Cx*scale, ay = H/2 - pose.Cy*scale;             // A=摆线轮中心
+  const bx = W/2 + pose.Cx*scale, by = H/2 + din*scale - pose.Cy*scale; // B=偏心套中心
+  const xform = (p) => {   // 齿廓旋转 rot + pose 变换 → 世界坐标
+    const x0=p[0]*cr - p[1]*sr, y0=p[0]*sr + p[1]*cr;
+    const rx=x0*pc - y0*ps + pose.Cx, ry=x0*ps + y0*pc + pose.Cy;
+    return [W/2 + rx*scale, H/2 - ry*scale];
+  };
+  // 面板 evenodd：胶囊 ∖ 摆线齿廓内 ∖ 偏心圆内
+  ctx.beginPath();
+  ctx.moveTo(ax-r, ay); ctx.lineTo(bx-r, by);
+  ctx.arc(bx, by, r, Math.PI, 0, true);
+  ctx.lineTo(ax+r, ay);
+  ctx.arc(ax, ay, r, 0, Math.PI, true);
+  ctx.closePath();
+  data.tooth.forEach((p,i)=>{ const w=xform(p); i?ctx.lineTo(w[0],w[1]):ctx.moveTo(w[0],w[1]); });
+  ctx.closePath();
+  ctx.moveTo(bx+eccR*scale, by); ctx.arc(bx, by, eccR*scale, 0, 2*Math.PI);
+  ctx.closePath();
+  ctx.fillStyle = rgba(col, 0.18*alpha); ctx.fill('evenodd');
+  // 胶囊轮廓
+  ctx.beginPath();
+  ctx.moveTo(ax-r, ay); ctx.lineTo(bx-r, by);
+  ctx.arc(bx, by, r, Math.PI, 0, true);
+  ctx.lineTo(ax+r, ay);
+  ctx.arc(ax, ay, r, 0, Math.PI, true);
+  ctx.closePath();
+  ctx.strokeStyle = rgba(col, alpha); ctx.lineWidth=1.8; ctx.stroke();
+  // 摆线轮 trochoid + tooth（都旋转 rot）
+  ctx.strokeStyle = rgba(trochCol, alpha*0.55); ctx.lineWidth=1.3;
+  ctx.beginPath();
+  trochoid(P).forEach((p,i)=>{ const w=xform(p); i?ctx.lineTo(w[0],w[1]):ctx.moveTo(w[0],w[1]); });
+  ctx.closePath(); ctx.stroke();
+  ctx.strokeStyle = rgba(col, alpha); ctx.lineWidth=2.2;
+  ctx.beginPath();
+  data.tooth.forEach((p,i)=>{ const w=xform(p); i?ctx.lineTo(w[0],w[1]):ctx.moveTo(w[0],w[1]); });
+  ctx.closePath(); ctx.stroke();
+  // 偏心圆
+  ctx.strokeStyle = rgba(col, alpha*0.9); ctx.lineWidth=1.6;
+  ctx.beginPath(); ctx.arc(bx,by,eccR*scale,0,2*Math.PI); ctx.stroke();
+}
+
+// ---- 读数 ----
+function updateReadout() {
+  const P = deriveParams();
+  const data = compute(P);
+  const odia = (P.Rp + P.rp + 6) * 2;
+  el('readout').innerHTML =
+    '减速比 = <b>1 : '+P.z_c+'</b>　(z<sub>c</sub>='+P.z_c+', z<sub>p</sub>='+P.z_p+')<br>'+
+    'sign = <b>'+SIGN+'</b>（外摆 / hypotrochoid）<br>'+
+    'd<sub>p</sub>=<b>'+dp.toFixed(1)+'</b>　R<sub>p</sub>=<b>'+P.Rp+'</b>　e=<b>'+P.e.toFixed(2)+'</b>　Δr<sub>p</sub>=<b>'+drp.toFixed(2)+'</b><br>'+
+    'K₁=<b>'+K1.toFixed(2)+'</b> '+(K1<1?'<span class="ok">✓短幅</span>':'<span class="warn">⚠超界</span>')+
+    '　K₂=<b>'+P.K2.toFixed(2)+'</b> '+(P.K2>1?'<span class="ok">✓不叠</span>':'<span class="warn">⚠干涉</span>')+'<br>'+
+    '齿顶=<b>'+data.rmax.toFixed(1)+'</b>　齿根=<b>'+data.rmin.toFixed(1)+'</b> mm　整机外径 ≈ <b>'+odia.toFixed(0)+'</b> mm'+
+    '<hr><b>动力输入刚体</b>：din=<b>'+din.toFixed(1)+'</b> mm（O 正下方），胶囊半径 capR=<b>'+capR.toFixed(1)+'</b> '+((capR>data.rmax)?'<span class="ok">✓包裹摆线</span>':'<span class="warn">⚠小于齿顶'+data.rmax.toFixed(1)+'</span>')+'，偏心 e=<b>'+P.e.toFixed(2)+'</b>'+
+    '<hr><b>运动学</b>：外摆盘平动 th=0，中心角=输入 φ（偏心套锁死同角）；针齿输出转 -φ/zp，<b>减速比 1:zp</b>';
+}
+
+// ---- 输入 / 显示 ----
+function readInputs() {
+  i_rat = +el('i_rat').value; dp = +el('dp').value; Rp = +el('Rp').value;
+  K1 = +el('K1').value; drp = +el('drp').value;
+  animSpeed = +el('spd').value; zoom = +el('zm').value;
+  din = +el('din').value;
+  capR = +el('capR').value;
+}
+function updateDisplays() {
+  readInputs();
+  const P = deriveParams();
+  el('i_v').textContent = i_rat;
+  el('dp_v').textContent = dp.toFixed(1);
+  el('Rp_v').textContent = Rp;
+  el('K1_v').textContent = K1.toFixed(2);
+  el('drp_v').textContent = drp.toFixed(2);
+  el('spd_v').textContent = animSpeed.toFixed(2);
+  el('zm_v').textContent = zoom.toFixed(2);
+  el('din_v').textContent = din.toFixed(1);
+  el('capR_v').textContent = capR.toFixed(1);
+  el('zp_v').textContent = P.z_p;
+  el('rp_v').textContent = P.rp.toFixed(2);
+  el('e_v').textContent = P.e.toFixed(2);
+  el('b_v').textContent = (P.Rp / P.z_p).toFixed(2);
+  el('k2_v').textContent = P.K2.toFixed(2);
+  el('k1badge').innerHTML = K1<1 ? '<span class="ok">✓短幅</span>' : '<span class="warn">⚠非短幅</span>';
+  el('k2badge').innerHTML = P.K2>1 ? '<span class="ok">✓不叠</span>' : '<span class="warn">⚠干涉</span>';
+}
+function applyDefaults() {
+  el('i_rat').value = DEFAULTS.i_rat; el('dp').value = DEFAULTS.dp;
+  el('Rp').value = DEFAULTS.Rp; el('K1').value = DEFAULTS.K1;
+  el('drp').value = DEFAULTS.drp; el('spd').value = DEFAULTS.spd;
+  el('zm').value = DEFAULTS.zoom;
+  el('din').value = DEFAULTS.din;
+  el('capR').value = DEFAULTS.capR;
+}
+
+// ---- 事件 ----
+['i_rat','dp','Rp','K1','drp','spd','zm','din','capR'].forEach(id => {
+  el(id).addEventListener('input', () => { updateDisplays(); draw(); });
+});
+// 啮合切换：meshT 0↔1 渐变（摆线轮偏心 e 的有无，就是个小偏心）
+function toggleMesh() {
+  meshed = !meshed;
+  const mb = el('meshbtn');
+  mb.classList.toggle('on', meshed);
+  mb.textContent = meshed ? '● 啮合中' : '啮合';
+  if (meshAnimating) return;
+  meshAnimating = true;
+  const fromT = meshT, toT = meshed ? 1 : 0, startT = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - startT) / 900);
+    const ease = k < .5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2;
+    meshT = fromT + (toT - fromT) * ease;
+    draw();
+    if (k < 1) requestAnimationFrame(step);
+    else { meshAnimating = false; meshT = toT; draw(); }
+  };
+  requestAnimationFrame(step);
+}
+el('meshbtn').onclick = toggleMesh;
+el('run').onclick = function() {
+  if (animating) {                            // 停转
+    animating = false; animPhi = 0;
+  } else {                                    // 起转：先保证在啮合位
+    if (!meshed) { meshed = true; meshT = 1; el('meshbtn').classList.add('on'); el('meshbtn').textContent='● 啮合中'; }
+    animating = true;
+  }
+  this.classList.toggle('on', animating);
+  this.textContent = animating ? '⏸ 运转' : '▶ 运转';
+  draw();
+};
+el('reset').onclick = function() {
+  applyDefaults(); updateDisplays();
+  meshed = true; meshT = 1; meshAnimating = false;
+  el('meshbtn').classList.add('on'); el('meshbtn').textContent = '● 啮合中';
+  animating = false; animPhi = 0;
+  el('run').classList.remove('on'); el('run').textContent = '▶ 运转';
+  stack = false; el('stackbtn').classList.remove('on'); el('stackbtn').textContent = '三片叠加';
+  draw();
+};
+el('genbtn').onclick = function() {
+  // 摆线生成：切到非啮合（摆线轮居中、偏心 e 消除）看齿廓生成
+  if (meshed) { meshed = false; meshT = 0;
+    el('meshbtn').classList.remove('on'); el('meshbtn').textContent = '啮合'; }
+  genAngle = 0; genPlaying = true;
+  this.textContent = '⏳ 生成中…';
+  draw();
+};
+el('stackbtn').onclick = function() {
+  stack = !stack;
+  this.classList.toggle('on', stack);
+  this.textContent = stack ? '● 三片叠加' : '三片叠加';
+  draw();
+};
+
+// 画布铺满 + 滚轮缩放
+function resizeCanvas() {
+  const r = el('stage').getBoundingClientRect();
+  W = Math.max(320, Math.floor(r.width));
+  H = Math.max(320, Math.floor(r.height));
+  cv.width = W; cv.height = H;
+  draw();
+}
+window.addEventListener('resize', resizeCanvas);
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const f = e.deltaY < 0 ? 1.12 : 1/1.12;
+  zoom = Math.max(0.3, Math.min(4.0, zoom * f));
+  el('zm').value = zoom.toFixed(2);
+  el('zm_v').textContent = zoom.toFixed(2);
+  draw();
+}, { passive:false });
+
+function loop() {
+  if (animating) animPhi += 0.016 * animSpeed;
+  if (genPlaying) {
+    genAngle += 0.016 * 2.2;
+    if (genAngle >= 2*Math.PI) {
+      genAngle = 2*Math.PI; genPlaying = false;
+      el('genbtn').textContent = '▶ 摆线生成动画';
+    }
+  }
+  if (animating || genPlaying) draw();
+  requestAnimationFrame(loop);
+}
+
+applyDefaults();
+updateDisplays();
+el('meshbtn').classList.add('on'); el('meshbtn').textContent = '● 啮合中';
+resizeCanvas();
+draw();
+loop();
+</script>
+</body>
+</html>

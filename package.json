@@ -5,6 +5,9 @@
   "description": "小红书小工具 · 摆线针轮减速器原理演示（2D 线稿动画）",
   "scripts": {
     "build": "node tools/build.js",
-    "pack": "node tools/pack.js"
+    "pack": "node tools/pack.js",
+    "pack-outer": "node tools/pack.js src-outer cycloidal_outer.zip",
+    "pack:all": "npm run pack && npm run pack-outer && npm run pack-combined",
+    "pack-combined": "node tools/pack.js src-combined cycloidal_combined.zip"
   }
 }

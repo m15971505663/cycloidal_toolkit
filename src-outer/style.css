@@ -1,0 +1,307 @@
+/* ============================================================
+   摆线针轮减速器 · 原理演示   ——  v7 浅灰玻璃风
+   浅灰渐变底 + 玻璃拟态浮空卡片 + 紫色渐变主调（移植自 v7_mobile）
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+
+body {
+  background: #e8e8ec;
+  color: #1a1a1a;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;   /* 长按呼出菜单（iOS callout / 安卓识别入口） */
+}
+
+/* ─── 手机壳容器 ─── */
+#app {
+  width: 100%; height: 100%;
+  position: relative;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.12);
+  border: 1px solid rgba(0,0,0,0.06);
+  background: #e8e8ec;
+}
+
+/* ─── 画布视口（最底层，全屏渐变）─── */
+#viewport {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(180deg, #e8e8ec 0%, #d8d8dc 100%);
+  overflow: hidden;
+}
+#viewport canvas { display: block; width: 100% !important; height: 100% !important; }
+
+/* ─── 标题栏（悬浮圆角玻璃条，下移避让刘海/水滴/挖孔）─── */
+#titlebar {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 36px);
+  left: 12px; right: 12px;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.6);
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  z-index: 20;
+}
+#title {
+  white-space: nowrap;
+  font-size: 17px; font-weight: 700; color: #1a1a1a;
+  letter-spacing: 0.5px;
+}
+.sub-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#credit {
+  font-size: 9px; font-weight: 500; color: rgba(0,0,0,0.35);
+  letter-spacing: .2px;
+  white-space: nowrap;
+}
+#ratioBadge {
+  font-size: 12px; font-weight: 700; color: #7c3aed;
+  background: rgba(124,58,237,0.12);
+  border: 1px solid rgba(124,58,237,0.25);
+  padding: 1px 10px; border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+/* ─── 底部浮空玻璃区 ─── */
+#bottom {
+  position: absolute;
+  left: 10px; right: 10px; bottom: 0;
+  z-index: 20;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+  pointer-events: none;
+}
+#bottom > * { pointer-events: auto; }
+
+/* ─── 阶段提示（左对齐轻量文字，浮在按钮框上方，聚焦当前步骤）─── */
+.step-hint {
+  margin: 0 0 8px;
+  padding: 0 14px;               /* 与卡片内文字对齐 */
+  text-align: left;
+  color: rgba(0,0,0,0.55);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  line-height: 1.5;
+}
+
+#controls {
+  border-radius: 22px;
+  padding: 10px 14px 12px;
+  background: rgba(255,255,255,0.55);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.6);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+}
+
+/* ─── 阶段指示器（圆点；间距与命中区加大，触屏好点）─── */
+.stage-dots {
+  display: flex; gap: 16px; justify-content: center;
+  padding: 0 0 6px;
+}
+.stage-dot {
+  width: 24px; height: 24px;      /* 命中区放大到 24px，视觉圆点用 ::after 画小圆 */
+  border-radius: 50%;
+  background: transparent;
+  border: none; padding: 0; cursor: pointer;
+  position: relative;
+}
+.stage-dot::after {
+  content: ''; position: absolute; left: 50%; top: 50%;
+  width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.18);
+  transition: transform .2s ease, background .2s ease;
+}
+.stage-dot.active::after { background: #7c3aed; transform: scale(1.25); }
+.stage-dot:active::after { transform: scale(1.5); }
+
+/* ─── 横向分屏（一屏一阶段；overflow hidden 禁手势滚动，只点圆点切换）─── */
+.stages {
+  display: flex;
+  overflow: hidden;              /* 用户滚不动 → 无滑动误触；scrollLeft 仍可程序赋值 */
+}
+.pcard {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+.stage-title {
+  font-size: 13.5px; font-weight: 700; color: #1a1a1a;
+  margin-bottom: 2px;
+}
+/* ④ W 销数：横向步进行 */
+.nw-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 8px; padding: 0 2px;
+}
+.stepper { display: flex; flex-direction: row; align-items: center; gap: 10px; }
+.stepper-btn {
+  width: 34px; height: 34px;
+  border-radius: 9px;
+  border: none;                        /* 无边框 */
+  background: transparent;             /* 无白色背景 */
+  color: #7c3aed;
+  font-size: 22px; font-weight: 700;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .1s ease, color .15s ease;
+}
+.stepper-btn:active { transform: scale(.9); color: #5b21b6; }
+.stepper-val {
+  font-size: 19px; font-weight: 700; color: #1a1a1a;
+  font-variant-numeric: tabular-nums;
+  min-width: 1.8em; text-align: center;
+}
+.stage-note, .s-note {
+  font-size: 10.5px; color: rgba(0,0,0,0.45);
+  margin-top: 8px; line-height: 1.55;
+}
+.s-note b {
+  color: rgba(0,0,0,0.72); font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.s-note .ok { color: #7c3aed; font-weight: 700; }
+.s-note .warn { color: #e67e22; font-weight: 700; }
+.s-note .danger { color: #e74c3c; font-weight: 700; }
+
+/* ─── 圈数读数（紫色大字，等宽不跳动）─── */
+.counter-row {
+  display: flex; align-items: center; gap: 16px;
+  padding: 2px 2px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  margin-bottom: 10px;
+}
+.counter {
+  display: flex; flex-direction: column; gap: 1px;
+}
+.counter .c-label { font-size: 10px; color: rgba(0,0,0,0.45); }
+.counter .c-num {
+  font-size: 22px; font-weight: 700; color: #7c3aed;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.counter .c-num small { font-size: 11px; color: rgba(0,0,0,0.4); font-weight: 600; margin-left: 2px; }
+.counter-sep { flex: 1; }
+/* 圈数行右侧的双盘开关 */
+.disc-toggle { display: flex; align-items: center; gap: 8px; flex: none; }
+.disc-toggle .s-name { font-size: 10.5px; color: rgba(0,0,0,0.5); }
+
+/* ─── 按钮行 ─── */
+.dock-btns { display: flex; gap: 6px; margin-bottom: 12px; }
+.btn {
+  flex: 1; height: 34px; border-radius: 9px;
+  border: none; font-size: 12.5px; font-weight: 600;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  background: rgba(255,255,255,0.6);
+  border: 1px solid rgba(0,0,0,0.12);
+  color: #1a1a1a;
+  transition: transform 0.1s;
+}
+.btn:active { transform: scale(0.96); }
+.btn-primary {
+  background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+  border: none; color: #fff;
+  box-shadow: 0 2px 8px rgba(124,58,237,0.3);
+}
+.btn-primary.playing {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  box-shadow: 0 2px 8px rgba(231,76,60,0.3);
+}
+.btn-gen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;                    /* 撑满卡片，按钮居中 */
+  margin-top: 12px;
+  height: 48px;
+  border-radius: 12px;
+  border: 1.5px solid #7c3aed;
+  color: #7c3aed;
+  background: rgba(124,58,237,0.08);
+  font-size: 14.5px;
+  letter-spacing: .5px;
+}
+.btn-gen:active { background: rgba(124,58,237,0.2); }
+
+/* ─── 双盘开关（⑤ 圈数行右侧）─── */
+.switch {
+  position: relative; width: 40px; height: 22px; border-radius: 999px;
+  border: none; cursor: pointer; padding: 0; flex: none;
+  background: rgba(0,0,0,0.15); transition: background .2s ease;
+}
+.switch .knob {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  transition: transform .2s ease;
+}
+.switch.on { background: #7c3aed; }
+.switch.on .knob { transform: translateX(18px); }
+
+/* ─── 参数折叠（玻璃卡内嵌）─── */
+.param-wrap { margin-top: 10px; border-top: 1px solid rgba(0,0,0,0.06); }
+.param-toggle {
+  display: flex; justify-content: space-between; align-items: center;
+  width: 100%; padding: 10px 2px 2px;
+  background: none; border: none; cursor: pointer;
+  font-size: 13px; font-weight: 700; color: #1a1a1a;
+}
+.param-toggle .caret { color: rgba(0,0,0,0.4); font-size: 12px; transition: transform .24s ease; }
+.param-wrap.closed .caret { transform: rotate(-90deg); }
+
+.param-body {
+  overflow: hidden;
+  max-height: 260px; opacity: 1;
+  padding: 2px 2px 0;
+  transition: max-height .24s ease, opacity .2s ease;
+}
+.param-wrap.closed .param-body { max-height: 0; opacity: 0; }
+
+.s-group { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.s-group input[type="range"] {
+  width: 100%;
+  -webkit-appearance: none; appearance: none;
+  height: 6px; border-radius: 3px;
+  background: rgba(0,0,0,0.15);
+  outline: none;
+  touch-action: none;
+}
+.s-group input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #7c3aed; cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.s-group input[type="range"]::-moz-range-thumb {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #7c3aed; border: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.s-label-row { display: flex; justify-content: space-between; align-items: center; }
+.s-name { font-size: 11px; color: rgba(0,0,0,0.45); }
+.s-name-em { color: #7c3aed; font-weight: 700; }        /* 偏心距 e 突出 */
+.s-val-em { color: #7c3aed; font-size: 13px; }
+.s-val { font-size: 12px; color: rgba(0,0,0,0.7); font-weight: 700; font-variant-numeric: tabular-nums; }
+.s-val small { font-size: 9.5px; font-weight: 600; color: rgba(0,0,0,0.4); margin-left: 1px; }
+
+.param-k1 { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(0,0,0,0.08); }
+.param-k1 .s-name { color: rgba(0,0,0,0.45); }
+.param-k1 .s-val { color: #7c3aed; }
+.param-k1 .s-val.warn { color: #e67e22; }
+.param-k1 .s-val.danger { color: #e74c3c; }

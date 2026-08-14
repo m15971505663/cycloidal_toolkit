@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>外摆线减速器 · 一转就懂</title>
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- 标题栏（浮顶玻璃，下移避让刘海/水滴/挖孔）-->
+    <div id="titlebar">
+      <span id="title">外摆线减速器 · 一转就懂</span>
+      <div class="sub-row">
+        <span id="ratioBadge">1 : 11</span>
+        <span id="credit">@TeamMaoLab</span>
+      </div>
+    </div>
+
+    <!-- 2D 运转视口（全屏渐变）-->
+    <div id="viewport">
+      <canvas id="cv"></canvas>
+    </div>
+
+    <!-- 底部浮空玻璃控制：阶段提示 + 圆点 + 横向分屏（点圆点切换，无手势）-->
+    <div id="bottom">
+      <div class="step-hint" id="stepHint"><b>第 1 步 · 定减速比与销：</b><br>z<sub>c</sub> 决定针齿数，减速比 = 1 : z<sub>p</sub>（=z<sub>c</sub>+1）</div>
+      <div id="controls">
+        <!-- 阶段指示器 -->
+        <div class="stage-dots" id="stageDots">
+          <button type="button" class="stage-dot active" data-i="0"></button>
+          <button type="button" class="stage-dot" data-i="1"></button>
+          <button type="button" class="stage-dot" data-i="2"></button>
+          <button type="button" class="stage-dot" data-i="3"></button>
+        </div>
+
+        <!-- 横向分屏（一屏一阶段；overflow hidden 禁手势滚动，只点圆点切换）-->
+        <div class="stages" id="stages">
+          <!-- ① 销布置 -->
+          <section class="pcard" data-i="0">
+            <div class="stage-title">① 减速比 · 销布置</div>
+            <div class="s-group">
+              <input type="range" id="zc" min="6" max="20" step="1" value="10" />
+              <div class="s-label-row">
+                <span class="s-name">减速比 z<sub>c</sub></span>
+                <span class="s-val" id="zcV">10</span>
+              </div>
+            </div>
+            <div class="s-group">
+              <input type="range" id="Rp" min="10" max="50" step="0.5" value="20" />
+              <div class="s-label-row">
+                <span class="s-name">针齿中心圆半径 R<sub>p</sub></span>
+                <span class="s-val" id="RpV">20<small>mm</small></span>
+              </div>
+            </div>
+            <div class="s-group">
+              <input type="range" id="dp" min="1" max="8" step="0.1" value="3" />
+              <div class="s-label-row">
+                <span class="s-name">针齿直径 d<sub>p</sub></span>
+                <span class="s-val" id="dpV">3.0<small>mm</small></span>
+              </div>
+            </div>
+            <div class="s-note">针齿数 z<sub>p</sub> = z<sub>c</sub> + 1 = <b id="zpV">11</b> · 针径系数 K₂ = <b id="k2V">—</b> <span id="k2Note"></span></div>
+            <div class="s-note">凸瓣数 z<sub>p</sub>+1 = <b id="lobesV">12</b> <span id="lobeNote"></span> · 三片叠装需 z<sub>c</sub> ∈ 7/10/13/16/19</div>
+          </section>
+
+          <!-- ② 摆线齿形 -->
+          <section class="pcard" data-i="1">
+            <div class="stage-title">② 摆线齿形</div>
+            <div class="s-group">
+              <input type="range" id="k1" min="0.3" max="1.1" step="0.01" value="0.75" />
+              <div class="s-label-row">
+                <span class="s-name s-name-em">短幅系数 K₁</span>
+                <span class="s-val s-val-em" id="k1V">0.75</span>
+              </div>
+            </div>
+            <div class="s-note">偏心距 e = K₁·R<sub>p</sub>/z<sub>p</sub> = <b id="eV">1.36</b> mm · K₁ &lt; 1 必须</div>
+            <button type="button" class="btn btn-gen" id="genBtn">▶ 摆线生成动画</button>
+          </section>
+
+          <!-- ③ 啮合修形 -->
+          <section class="pcard" data-i="2">
+            <div class="stage-title">③ 啮合 · 修形</div>
+            <div class="s-group">
+              <input type="range" id="drp" min="0" max="1" step="0.02" value="0.2" />
+              <div class="s-label-row">
+                <span class="s-name">齿侧间隙 drp（修形量）</span>
+                <span class="s-val" id="drpV">0.20<small>mm</small></span>
+              </div>
+            </div>
+            <div class="s-note">齿廓法向外偏移 r<sub>p</sub>+drp 外胀包裹针齿，啮合间隙 = drp</div>
+          </section>
+
+          <!-- ③ 机构运转 -->
+          <section class="pcard" data-i="3">
+            <div class="stage-title">④ 机构 · 运转验证</div>
+            <div class="s-group">
+              <input type="range" id="din" min="20" max="100" step="0.5" value="40" />
+              <div class="s-label-row">
+                <span class="s-name">动力输入距 d<sub>in</sub></span>
+                <span class="s-val" id="dinV">40.0<small>mm</small></span>
+              </div>
+            </div>
+            <div class="s-group">
+              <input type="range" id="capR" min="15" max="60" step="0.5" value="28" />
+              <div class="s-label-row">
+                <span class="s-name">胶囊半径 r<sub>cap</sub></span>
+                <span class="s-val" id="capRV">28.0<small>mm</small></span>
+              </div>
+            </div>
+            <div class="counter-row">
+              <div class="counter">
+                <span class="c-label">输入（胶囊平动）</span>
+                <span class="c-num" id="inCnt">0.0<small>圈</small></span>
+              </div>
+              <div class="counter">
+                <span class="c-label">输出（针齿慢转）</span>
+                <span class="c-num" id="outCnt">0.00<small>圈</small></span>
+              </div>
+              <div class="counter-sep"></div>
+              <div class="disc-toggle">
+                <span class="s-name">三片 120°</span>
+                <button type="button" class="switch on" id="stackSw"><span class="knob"></span></button>
+              </div>
+            </div>
+            <div class="dock-btns">
+              <button type="button" class="btn btn-primary" id="play">▶ 运转</button>
+              <button type="button" class="btn" id="reset">↺ 重置</button>
+            </div>
+            <div class="s-group">
+              <div class="s-label-row">
+                <span class="s-name">速度</span>
+                <span class="s-val" id="spdV">1.0</span>
+              </div>
+              <input type="range" id="spd" min="0.2" max="8" step="0.1" value="1" />
+            </div>
+            <div class="s-note">三片 120° 相位动平衡（要求见第①步），齿错 phase/(z<sub>p</sub>+1)</div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./main.js"></script>
+</body>
+</html>

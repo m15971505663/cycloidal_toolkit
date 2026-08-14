@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 /**
- * 打包 + 自检：src → dist → zip（index.html 在 zip 根目录）
+ * 打包 + 自检：<srcDir> → <distDir> → zip（index.html 在 zip 根目录）
  * 自检：入口位置 / 无内联脚本 / 无行内事件 / 文件类型白名单 / 无外部引用 / 体积
+ * 用法：node tools/pack.js [srcDir=src] [zipName=cycloidal_cycloid.zip]
  */
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
-const SRC = path.join(ROOT, 'src');
-const DIST = path.join(ROOT, 'dist');
-const OUT = path.join(ROOT, 'cycloidal_cycloid.zip');
+const SRC_NAME = process.argv[2] || 'src';
+const SRC = path.join(ROOT, SRC_NAME);
+const DIST = path.join(ROOT, SRC_NAME === 'src' ? 'dist' : 'dist-' + SRC_NAME.replace(/^src-?/, ''));
+const OUT = path.join(ROOT, process.argv[3] || 'cycloidal_cycloid.zip');
 
 function copy(src, dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
