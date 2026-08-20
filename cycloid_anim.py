@@ -416,6 +416,10 @@ class Main(QMainWindow):
         bl.addWidget(load_btn)
         v.addWidget(btn_row)
 
+        dxf_btn = QPushButton('导出 DXF')
+        dxf_btn.clicked.connect(self.on_export_dxf)
+        v.addWidget(dxf_btn)
+
         v.addStretch(1)
 
         scroll = QScrollArea()
@@ -513,7 +517,25 @@ class Main(QMainWindow):
             self._fit_limits()
             self.draw_canvas()
 
-    def sync_ui_from_params(self):
+    def on_export_dxf(self):
+        """导出当前模式的零部件 DXF 到用户选定目录。"""
+        from PyQt5.QtWidgets import QMessageBox
+        try:
+            import dxf_export
+        except Exception as e:
+            QMessageBox.warning(self, '导出 DXF', '缺少 ezdxf 依赖：请先执行\npip install ezdxf')
+            return
+        out_dir = QFileDialog.getExistingDirectory(self, '选择 DXF 输出目录')
+        if not out_dir:
+            return
+        try:
+            files = dxf_export.export_current(params, out_dir, mode,
+                                              params['dbl'], params['stack'])
+            QMessageBox.information(
+                self, '导出 DXF', '已生成 %d 份 DXF 到：\n%s\n\n%s'
+                % (len(files), out_dir, '\n'.join(os.path.basename(f) for f in files)))
+        except Exception as e:
+            QMessageBox.warning(self, '导出 DXF', '导出失败：%s' % e)
         """将全局 params/mode 同步到界面控件（模式切换、导入、重开恢复时调用）。"""
         self.rb_inner.setChecked(mode == 'inner')
         self.rb_outer.setChecked(mode == 'outer')
