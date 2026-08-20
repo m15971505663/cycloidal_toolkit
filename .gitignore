@@ -4,3 +4,5 @@ dist/
 node_modules/
 __MACOSX/
 dist*/
+__pycache__/
+*.pyc
