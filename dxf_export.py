@@ -113,12 +113,14 @@ def export_inner(params, out_dir, SIGN=+1, dbl=True):
     files['fixed_pins'] = save_doc(doc, os.path.join(out_dir, 'fixed_pins.dxf'))
 
     # 2) 摆线盘：齿廓（闭合多段线，按弧长加密确保凹齿不粗糙） + nw 个 W 孔（圆）
+    #    + 1 个偏心套圆（中心相对盘心偏移 e；双盘是同一零件装 180°，DXF 仍只有 1 个偏心圆）
     doc = new_doc(); msp = doc.modelspace()
     tooth = tooth_pts()                       # 盘以自身形心为原点
     _add_polyline(msp, resample_arclen(tooth, 0.15), closed=True)
     for i in range(nw):
         a = i / nw * 2 * np.pi
         _add_circle(msp, params['Rw'] * np.cos(a), params['Rw'] * np.sin(a), holeR)
+    _add_circle(msp, e, 0.0, eccR)
     files['cycloid_disc'] = save_doc(doc, os.path.join(out_dir, 'cycloid_disc.dxf'))
 
     # 3) W 销：nw 个圆，半径 wR，中心在 Rw 圆上（输出销，参考位）

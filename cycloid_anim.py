@@ -54,6 +54,7 @@ params_inner = dict(DEFAULT_INNER)
 params_outer = dict(DEFAULT_OUTER)
 
 mode = 'inner'      # 'inner' 内摆 / 'outer' 外摆
+
 SIGN = +1           # 外摆核心开关（内摆 +1 / 外摆 −1）
 
 # params 永远指向当前模式对应的参数字典（内摆/外摆各自独立记忆）
