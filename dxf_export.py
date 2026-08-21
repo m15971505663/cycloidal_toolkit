@@ -19,6 +19,39 @@ def _add_circle(msp, cx, cy, r):
     msp.add_circle((float(cx), float(cy), 0.0), float(r))
 
 
+def resample_arclen(pts, max_step):
+    """把闭合轮廓按弧长重新采样，保证相邻点弦距 ≤ max_step。
+
+    等 t 采样在曲率大的部位（凹齿 / 凸齿）弦距大、显得粗糙；
+    按弧长均匀采样会在这些部位自动加密点，齿形各处平滑度一致。
+    """
+    pts = np.asarray(pts, dtype=float)
+    # 记点间累积弧长（闭合：末尾再连回起点）
+    diff = np.diff(pts, axis=0)
+    seg = np.hypot(diff[:, 0], diff[:, 1])
+    close = np.hypot(pts[0, 0] - pts[-1, 0], pts[0, 1] - pts[-1, 1])
+    seg = np.append(seg, close)
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    total = cum[-1]
+    if total <= 0:
+        return pts
+    n = max(2, int(np.ceil(total / max_step)))
+    s_target = np.linspace(0.0, total - 1e-9, n)
+    # 插值（闭合，用重复首点的 Python 版线性插值）
+    # 把点序列扩展一个周期便于循环插值
+    pts_ext = np.concatenate([pts, pts[:1]], axis=0)
+    cumc = np.concatenate([[0.0], np.cumsum(
+        np.hypot(np.diff(pts_ext[:, 0]), np.diff(pts_ext[:, 1])))])
+    out = np.empty((n, 2))
+    j = 0
+    for i, s in enumerate(s_target):
+        while j < len(cumc) - 1 and cumc[j + 1] < s:
+            j += 1
+        t = (s - cumc[j]) / max(cumc[j + 1] - cumc[j], 1e-12)
+        out[i] = pts_ext[j] + t * (pts_ext[j + 1] - pts_ext[j])
+    return out
+
+
 # ---- 通用：画闭合多段线的轮廓（可直接存 .dxf，不想在模块里引 ezdxf 依赖时的常量名）----
 # 这里直接引入 ezdxf，函数均返回 doc
 
@@ -79,10 +112,10 @@ def export_inner(params, out_dir, SIGN=+1, dbl=True):
         _add_circle(msp, params['Rp'] * np.cos(a), params['Rp'] * np.sin(a), rp)
     files['fixed_pins'] = save_doc(doc, os.path.join(out_dir, 'fixed_pins.dxf'))
 
-    # 2) 摆线盘：齿廓（闭合多段线） + nw 个 W 孔（圆）
+    # 2) 摆线盘：齿廓（闭合多段线，按弧长加密确保凹齿不粗糙） + nw 个 W 孔（圆）
     doc = new_doc(); msp = doc.modelspace()
     tooth = tooth_pts()                       # 盘以自身形心为原点
-    _add_polyline(msp, tooth, closed=True)
+    _add_polyline(msp, resample_arclen(tooth, 0.15), closed=True)
     for i in range(nw):
         a = i / nw * 2 * np.pi
         _add_circle(msp, params['Rw'] * np.cos(a), params['Rw'] * np.sin(a), holeR)
@@ -151,8 +184,11 @@ def export_outer(params, out_dir, SIGN=-1, stack=True):
         tooth = tooth_pts()
         tx = tooth[:, 0] * cr - tooth[:, 1] * sr + axc
         ty = tooth[:, 0] * sr + tooth[:, 1] * cr + ay
+        tooth = np.stack([tx, ty], axis=1)
+        tooth = resample_arclen(tooth, 0.15)      # 按弧长加密，凸齿不粗糙
         cap = capsule_outline(axc, ay, bx, by, capR)
-        return cap, np.stack([tx, ty], axis=1), (bx, by)
+        cap = resample_arclen(cap, 0.2)           # 胶囊外沿圆弧也按弧长加密
+        return cap, tooth, (bx, by)
 
     files = {}
 

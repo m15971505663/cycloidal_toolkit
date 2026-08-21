@@ -6,4 +6,4 @@ __MACOSX/
 dist*/
 __pycache__/
 *.pyc
-*.dxf
+
