@@ -10,9 +10,32 @@ import os
 import numpy as np
 
 
-def _add_polyline(msp, pts, closed=True):
-    """pts: Nx2 (mm)，写成闭合多段线（保留真实圆弧用 LWPOLYLINE 顶点足够密）。"""
-    msp.add_lwpolyline([(float(x), float(y), 0.0) for x, y in pts], close=closed)
+def _add_closed_spline(msp, pts, dn=None, degree=3):
+    """把闭合轮廓写成闭合三次样条（SPLINE），以精准的样条代替多段线弦逼近。
+
+    - 先用 ezdxf 的 fit_points_to_cad_cv 把插值点转成控制点 + 节点向量，
+      写出带明确控制点的 SPLINE（73=控制点数），所有 CAD/查看器都能正确显示；
+      若只写拟合点(11)很多查看器会显示为空。
+    - dn 给定则等距抽稀到 dn 点（光滑圆弧段可抽稀）；齿廓尖端曲率大，None 保留全部点最准。
+    """
+    if dn is not None and len(pts) > dn:
+        idx = np.linspace(0, len(pts) - 1, dn, dtype=int)
+        idx = np.unique(idx)
+        pts = pts[idx]
+    try:
+        from ezdxf.math import fit_points_to_cad_cv
+        bs = fit_points_to_cad_cv([(float(x), float(y)) for x, y in pts])
+    except Exception:
+        bs = None
+    if bs is not None and len(bs.control_points) >= 4:
+        spline = msp.add_spline(degree=degree)
+        spline.control_points = [tuple(float(v) for v in c) for c in bs.control_points]
+        spline.knots = list(bs.knots())
+        spline.closed = True
+        return spline
+    # 兜底：控制点不足时退回多段线，保证齿廓仍可显示
+    msp.add_lwpolyline([(float(x), float(y), 0.0) for x, y in pts], close=True)
+    return None
 
 
 def _add_circle(msp, cx, cy, r):
@@ -82,7 +105,7 @@ def export_inner(params, out_dir, SIGN=+1, dbl=True):
     # 2) 摆线盘：齿廓（闭合多段线） + nw 个 W 孔（圆）
     doc = new_doc(); msp = doc.modelspace()
     tooth = tooth_pts()                       # 盘以自身形心为原点
-    _add_polyline(msp, tooth, closed=True)
+    _add_closed_spline(msp, tooth)
     for i in range(nw):
         a = i / nw * 2 * np.pi
         _add_circle(msp, params['Rw'] * np.cos(a), params['Rw'] * np.sin(a), holeR)
@@ -177,8 +200,8 @@ def export_outer(params, out_dir, SIGN=-1, stack=True):
         phase = 2 * np.pi * k / 3 if stack else 0.0
         cap, tooth, (bx, by) = member_pts(phase)
         doc = new_doc(); msp = doc.modelspace()
-        _add_polyline(msp, cap, closed=True)          # 胶囊外沿
-        _add_polyline(msp, tooth, closed=True)        # 齿廓
+        _add_closed_spline(msp, cap, dn=64)           # 胶囊外沿（样条，光滑圆弧可抽稀）
+        _add_closed_spline(msp, tooth)                # 齿廓（样条）
         _add_circle(msp, bx, by, eccR)                # 输入轴偏心套圆
         key = 'member_%d' % k
         files[key] = save_doc(doc, os.path.join(out_dir, '%s.dxf' % key))
