@@ -45,10 +45,14 @@ class NoWheelDoubleSpinBox(QDoubleSpinBox):
 # ---- 设计参数（直径按用户习惯，内部换算半径）----
 DEFAULT_INNER = {'zc': 14, 'k1': 0.75, 'Rp': 16, 'dp': 2, 'drp': 0.2,
                  'nw': 6, 'dw': 2, 'Rw': 10, 'eccR': 7, 'speed': 1, 'dbl': True,
-                 'din': 40, 'capR': 28, 'stack': True}
+                 'din': 40, 'capR': 28, 'stack': True,
+                 'L_disc': 4.0, 'L_pin': 8.0, 'L_wpin': 4.0, 'L_sleeve': 8.0,
+                 'L_member': 4.0, 'L_shaft': 12.0, 'r_shaft': 2.5}
 DEFAULT_OUTER = {'zc': 10, 'k1': 0.75, 'Rp': 20, 'dp': 3, 'drp': 0.2,
                  'nw': 6, 'dw': 2, 'Rw': 10, 'eccR': 7, 'speed': 1, 'dbl': True,
-                 'din': 40, 'capR': 28, 'stack': True}
+                 'din': 40, 'capR': 28, 'stack': True,
+                 'L_disc': 4.0, 'L_pin': 8.0, 'L_wpin': 4.0, 'L_sleeve': 8.0,
+                 'L_member': 4.0, 'L_shaft': 12.0, 'r_shaft': 2.5}
 
 params_inner = dict(DEFAULT_INNER)
 params_outer = dict(DEFAULT_OUTER)
@@ -249,7 +253,6 @@ def _setup_cjk_font():
     return None
 
 _setup_cjk_font()
-
 INNER_FORM = [
     ('针齿数 zc', 'zc', 5, 50, 1, 0, True),
     ('短幅系数 K₁', 'k1', 0.20, 0.95, 0.01, 2, False),
@@ -261,7 +264,13 @@ INNER_FORM = [
     ('W 分布圆 Rw', 'Rw', 5, 25, 0.5, 1, False),
     ('偏心套半径 eccR', 'eccR', 2, 15, 0.5, 1, False),
     ('运转速度 speed', 'speed', 0.1, 5.0, 0.1, 1, False),
+    ('盘厚 L', 'L_disc', 1, 30, 0.5, 1, False),
+    ('针齿长 Lp', 'L_pin', 1, 60, 0.5, 1, False),
+    ('W 销长 Lw', 'L_wpin', 1, 30, 0.5, 1, False),
+    ('偏心套轴长 Ls', 'L_sleeve', 2, 80, 0.5, 1, False),
+    ('输入轴半径 r', 'r_shaft', 1, 12, 0.1, 1, False),
 ]
+
 OUTER_FORM = [
     ('针齿数 zc', 'zc', 5, 30, 1, 0, True),
     ('短幅系数 K₁', 'k1', 0.20, 0.95, 0.01, 2, False),
@@ -272,6 +281,10 @@ OUTER_FORM = [
     ('面板半径 capR', 'capR', 8, 45, 1, 1, False),
     ('偏心套半径 eccR', 'eccR', 1, 30, 0.5, 1, False),
     ('运转速度 speed', 'speed', 0.1, 5.0, 0.1, 1, False),
+    ('盘厚 L', 'L_member', 1, 30, 0.5, 1, False),
+    ('针齿长 Lp', 'L_pin', 1, 60, 0.5, 1, False),
+    ('输入轴长 Ls', 'L_shaft', 2, 80, 0.5, 1, False),
+    ('输入轴半径 r', 'r_shaft', 1, 12, 0.1, 1, False),
 ]
 
 
@@ -421,6 +434,10 @@ class Main(QMainWindow):
         dxf_btn.clicked.connect(self.on_export_dxf)
         v.addWidget(dxf_btn)
 
+        step_btn = QPushButton('导出 STEP')
+        step_btn.clicked.connect(self.on_export_step)
+        v.addWidget(step_btn)
+
         v.addStretch(1)
 
         scroll = QScrollArea()
@@ -537,6 +554,29 @@ class Main(QMainWindow):
                 % (len(files), out_dir, '\n'.join(os.path.basename(f) for f in files)))
         except Exception as e:
             QMessageBox.warning(self, '导出 DXF', '导出失败：%s' % e)
+
+    def on_export_step(self):
+        """导出当前模式的零部件 STEP 三维模型到用户选定目录。"""
+        from PyQt5.QtWidgets import QMessageBox
+        try:
+            import step_export
+        except Exception:
+            QMessageBox.warning(self, '导出 STEP',
+                                '缺少 cadquery 依赖：请先执行\npip install cadquery')
+            return
+        out_dir = QFileDialog.getExistingDirectory(self, '选择 STEP 输出目录')
+        if not out_dir:
+            return
+        try:
+            files = step_export.export_current(params, out_dir, mode,
+                                               params['dbl'], params['stack'])
+            QMessageBox.information(
+                self, '导出 STEP', '已生成 %d 份 STEP 到：\n%s\n\n%s'
+                % (len(files), out_dir, '\n'.join(os.path.basename(f) for f in files)))
+        except Exception as exc:
+            QMessageBox.warning(self, '导出 STEP', '导出失败：%s' % exc)
+
+    def sync_ui_from_params(self):
         """将全局 params/mode 同步到界面控件（模式切换、导入、重开恢复时调用）。"""
         self.rb_inner.setChecked(mode == 'inner')
         self.rb_outer.setChecked(mode == 'outer')

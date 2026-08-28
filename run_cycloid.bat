@@ -4,8 +4,8 @@ setlocal enabledelayedexpansion
 
 rem ============================================================
 rem  摆线针轮减速器 · 原理演示 一键环境配置 + 运行脚本
-rem  首次运行：安装 Python 依赖 (numpy / matplotlib / PyQt5)
-rem  再次运行：直接启动 cycloid_anim.py
+rem  每次运行都会检查/补齐依赖 (numpy matplotlib PyQt5 ezdxf cadquery)
+rem  cadquery 体积较大，首次安装请耐心等待
 rem ============================================================
 
 cd /d "%~dp0"
@@ -35,24 +35,18 @@ if not exist "cycloid_anim.py" (
     exit /b 1
 )
 
-rem ---- 首次运行安装依赖（用 requirements.txt 做标记）----
-if exist ".env_done" (
-    echo [信息] 依赖已安装，直接启动。
-) else (
-    echo [信息] 首次运行，正在安装依赖，请稍候...
+rem ---- 安装/补齐依赖（已装则秒过；cadquery 首次下载约 200MB，请耐心等待）----
+echo [信息] 检查依赖 (已装好的会自动跳过)...
+python -m pip install --upgrade pip >nul 2>nul
+python -m pip install -r requirements.txt
+if errorlevel 1 (
     echo.
-    python -m pip install --upgrade pip >nul 2>nul
-    python -m pip install -r requirements.txt
-    if errorlevel 1 (
-        echo.
-        echo [错误] 依赖安装失败。可能原因：
-        echo   - 网络无法访问 PyPI，请检查网络或配置镜像源。
-        echo.
-        pause
-        exit /b 1
-    )
-    echo. > ".env_done"
-    echo [信息] 依赖安装完成。
+    echo [错误] 依赖安装失败。可能原因：
+    echo   - 网络无法访问 PyPI，请检查网络或配置镜像源，例如：
+    echo     python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    echo.
+    pause
+    exit /b 1
 )
 
 echo.
