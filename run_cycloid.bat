@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
@@ -12,47 +12,71 @@ cd /d "%~dp0"
 
 echo.
 echo ============================================
-echo   摆线针轮减速器 · 原理演示
+echo   Cycloidal Reducer - Principle Demo
 echo ============================================
 echo.
 
-rem ---- 检查 Python 是否可用 ----
 where python >nul 2>nul
 if errorlevel 1 (
-    echo [错误] 未检测到 Python，请先安装 Python 3.8 及以上版本。
-    echo 下载地址: https://www.python.org/downloads/
-    echo 安装时请勾选 "Add Python to PATH"。
-    echo.
+    echo [ERROR] Python not found. Install Python 3.8+ from:
+    echo   https://www.python.org/downloads/
     pause
     exit /b 1
 )
 
-rem ---- 检查 cycloid_anim.py 是否存在 ----
 if not exist "cycloid_anim.py" (
-    echo [错误] 找不到 cycloid_anim.py，请确认脚本与程序在同一目录。
-    echo.
+    echo [ERROR] cycloid_anim.py not found.
     pause
     exit /b 1
 )
 
-rem ---- 安装/补齐依赖（已装则秒过；cadquery 首次下载约 200MB，请耐心等待）----
-echo [信息] 检查依赖 (已装好的会自动跳过)...
+echo [INFO] Checking dependencies...
+python -c "import numpy, matplotlib, PyQt5" >nul 2>nul
+if %errorlevel%==0 (
+    echo [INFO] Dependencies OK. Launching...
+    goto :run
+)
+
+if exist ".env_done" del /q ".env_done"
+
+echo [INFO] Installing dependencies (cadquery ~200MB, please wait)...
+echo.
+
+set "PIP_OK=0"
 python -m pip install --upgrade pip >nul 2>nul
-python -m pip install -r requirements.txt
-if errorlevel 1 (
+python -m pip install -r requirements.txt >nul 2>nul
+if %errorlevel%==0 set "PIP_OK=1"
+if "!PIP_OK!"=="0" (
+    echo [FALLBACK] Trying py -m pip ...
+    py -m pip install --upgrade pip >nul 2>nul
+    py -m pip install -r requirements.txt >nul 2>nul
+    if %errorlevel%==0 set "PIP_OK=1"
+)
+if "!PIP_OK!"=="0" (
+    echo [FALLBACK] Trying pip ...
+    pip install --upgrade pip >nul 2>nul
+    pip install -r requirements.txt >nul 2>nul
+    if %errorlevel%==0 set "PIP_OK=1"
+)
+
+if "!PIP_OK!"=="0" (
     echo.
-    echo [错误] 依赖安装失败。可能原因：
-    echo   - 网络无法访问 PyPI，请检查网络或配置镜像源，例如：
-    echo     python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    echo [ERROR] pip failed. Try manually:
+    echo   pip install numpy matplotlib PyQt5 ezdxf cadquery
     echo.
+    echo If pip also fails, reinstall Python:
+    echo   https://www.python.org/downloads/
     pause
     exit /b 1
 )
 
-echo.
-echo [信息] 正在启动程序...
-python cycloid_anim.py
+echo. > ".env_done"
+echo [INFO] Dependencies installed.
 
+:run
 echo.
-echo [信息] 程序已退出。
+echo [INFO] Launching program...
+python cycloid_anim.py
+echo.
+echo [INFO] Program exited.
 pause

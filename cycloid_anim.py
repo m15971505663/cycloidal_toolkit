@@ -27,6 +27,11 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout,
                              QRadioButton, QButtonGroup, QScrollArea, QFrame,
                              QFileDialog)
 from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QGuiApplication
+
+# 高分屏（Win 缩放 125%/150%）自适应，必须在创建 QApplication 前设置
+QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.patches import Circle
@@ -292,7 +297,9 @@ class Main(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('摆线针轮减速器 · 原理演示（内摆 / 外摆）')
-        self.resize(1240, 920)
+        g = self._avail()
+        self.resize(min(1240, int(g.width() * 0.94)),
+                    min(920, int(g.height() * 0.90)))
         try:
             load_params_from_file(param_file())      # 重开恢复上次参数
         except Exception as e:
@@ -321,6 +328,10 @@ class Main(QMainWindow):
         self.timer.timeout.connect(self.tick)
 
     # ---- 右侧参数面板 ----
+    def _avail(self):
+        screen = QGuiApplication.primaryScreen()
+        return screen.availableGeometry() if screen else None
+
     def build_panel(self):
         panel = QWidget()
         v = QVBoxLayout(panel)
@@ -443,7 +454,11 @@ class Main(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(panel)
-        scroll.setFixedWidth(340)
+        # 面板宽度自适应：小屏收窄、大屏加宽，避免横向滚动条
+        g = self._avail()
+        panel_w = max(280, min(340, int(g.width() * 0.26))) if g else 340
+        scroll.setFixedWidth(panel_w)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         return scroll
 
     # ---- 参数行（数值框），修改即触发实时刷新 ----
