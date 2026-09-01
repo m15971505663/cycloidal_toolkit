@@ -16,12 +16,19 @@ echo   Cycloidal Reducer - Principle Demo
 echo ============================================
 echo.
 
-where python >nul 2>nul
-if errorlevel 1 (
-    echo [ERROR] Python not found. Install Python 3.8+ from:
-    echo   https://www.python.org/downloads/
-    pause
-    exit /b 1
+rem ---- 优先使用项目 .venv，回退到系统 Python ----
+set "PYEXE=python"
+if exist ".venv\Scripts\python.exe" (
+    set "PYEXE=.venv\Scripts\python.exe"
+    echo [INFO] Using project .venv
+) else (
+    where python >nul 2>nul
+    if errorlevel 1 (
+        echo [ERROR] Python not found. Install Python 3.8+ from:
+        echo   https://www.python.org/downloads/
+        pause
+        exit /b 1
+    )
 )
 
 if not exist "cycloid_anim.py" (
@@ -31,7 +38,7 @@ if not exist "cycloid_anim.py" (
 )
 
 echo [INFO] Checking dependencies...
-python -c "import numpy, matplotlib, PyQt5" >nul 2>nul
+"!PYEXE!" -c "import numpy, matplotlib, PyQt5" >nul 2>nul
 if %errorlevel%==0 (
     echo [INFO] Dependencies OK. Launching...
     goto :run
@@ -43,8 +50,8 @@ echo [INFO] Installing dependencies (cadquery ~200MB, please wait)...
 echo.
 
 set "PIP_OK=0"
-python -m pip install --upgrade pip >nul 2>nul
-python -m pip install -r requirements.txt >nul 2>nul
+"!PYEXE!" -m pip install --upgrade pip >nul 2>nul
+"!PYEXE!" -m pip install -r requirements.txt >nul 2>nul
 if %errorlevel%==0 set "PIP_OK=1"
 if "!PIP_OK!"=="0" (
     echo [FALLBACK] Trying py -m pip ...
@@ -76,7 +83,7 @@ echo [INFO] Dependencies installed.
 :run
 echo.
 echo [INFO] Launching program...
-python cycloid_anim.py
+"!PYEXE!" cycloid_anim.py
 echo.
 echo [INFO] Program exited.
 pause
